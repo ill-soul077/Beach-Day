@@ -6,6 +6,20 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
+#include <iostream>
+#include <string>
+
+enum ViewPreset
+{
+    VIEW_OVERVIEW = 0,
+    VIEW_BOAT,
+    VIEW_TOWER,
+    VIEW_ROBOT,
+    VIEW_PALM_ROCKS,
+    VIEW_RIGHT_BEACH,
+    VIEW_SEA_BOATS,
+    VIEW_PRESET_COUNT
+};
 
 class Camera
 {
@@ -25,11 +39,21 @@ public:
     bool isDraggingOrbit;
     bool isDraggingPan;
 
+    // Smooth transition / presets
+    glm::vec3 desiredTarget;
+    float desiredDistance;
+    float desiredYaw;
+    float desiredPitch;
+    bool isTransitioning;
+    int currentPresetIndex;
+
     Camera(glm::vec3 targetPos = glm::vec3(0.0f, 1.0f, 0.0f), float dist = 12.0f)
         : target(targetPos), distance(dist), yaw(45.0f), pitch(22.0f),
           fov(45.0f), nearPlane(0.1f), farPlane(300.0f),
           firstMouse(true), lastX(0.0), lastY(0.0),
-          isDraggingOrbit(false), isDraggingPan(false)
+          isDraggingOrbit(false), isDraggingPan(false),
+          desiredTarget(targetPos), desiredDistance(dist), desiredYaw(45.0f), desiredPitch(22.0f),
+          isTransitioning(false), currentPresetIndex(0)
     {
     }
 
@@ -55,8 +79,129 @@ public:
         return glm::perspective(glm::radians(fov), aspectRatio, nearPlane, farPlane);
     }
 
+    void update(float deltaTime)
+    {
+        if (isTransitioning)
+        {
+            float t = glm::clamp(deltaTime * 5.0f, 0.0f, 1.0f);
+            target = glm::mix(target, desiredTarget, t);
+            distance = glm::mix(distance, desiredDistance, t);
+
+            // Angle difference with 360-degree wrap-around handling
+            float yawDiff = desiredYaw - yaw;
+            while (yawDiff < -180.0f) yawDiff += 360.0f;
+            while (yawDiff > 180.0f) yawDiff -= 360.0f;
+            yaw += yawDiff * t;
+
+            pitch = glm::mix(pitch, desiredPitch, t);
+
+            if (glm::distance(target, desiredTarget) < 0.02f &&
+                std::fabs(distance - desiredDistance) < 0.02f &&
+                std::fabs(yawDiff) < 0.2f &&
+                std::fabs(pitch - desiredPitch) < 0.2f)
+            {
+                target = desiredTarget;
+                distance = desiredDistance;
+                yaw = desiredYaw;
+                pitch = desiredPitch;
+                isTransitioning = false;
+            }
+        }
+    }
+
+    void setPreset(ViewPreset preset, GLFWwindow* window = nullptr)
+    {
+        currentPresetIndex = (int)preset;
+        std::string name = "";
+
+        switch (preset)
+        {
+        case VIEW_BOAT:
+            // Focus directly on the sailboat floating in the water
+            desiredTarget = glm::vec3(4.2f, 1.6f, 14.0f);
+            desiredDistance = 6.5f;
+            desiredYaw = 20.0f;
+            desiredPitch = 14.0f;
+            name = "Sailboat [Key: B]";
+            break;
+
+        case VIEW_TOWER:
+            // Focus on the Lifeguard Watch Tower on the shoreline
+            desiredTarget = glm::vec3(-4.2f, 2.2f, 3.2f);
+            desiredDistance = 8.0f;
+            desiredYaw = 22.0f;
+            desiredPitch = 16.0f;
+            name = "Lifeguard Watch Tower [Key: T]";
+            break;
+
+        case VIEW_ROBOT:
+            // Focus on the Center Robot lounging under umbrella
+            desiredTarget = glm::vec3(0.0f, 1.0f, -0.8f);
+            desiredDistance = 5.2f;
+            desiredYaw = 38.0f;
+            desiredPitch = 18.0f;
+            name = "Center Robot & Umbrella [Key: C]";
+            break;
+
+        case VIEW_PALM_ROCKS:
+            // Focus on the Left Palm Trees and Coastal Rocks
+            desiredTarget = glm::vec3(-13.5f, 2.8f, -4.0f);
+            desiredDistance = 9.5f;
+            desiredYaw = 42.0f;
+            desiredPitch = 16.0f;
+            name = "Palm Trees & Rocks [Key: P]";
+            break;
+
+        case VIEW_RIGHT_BEACH:
+            // Focus on the Right Beach Lounge Setup
+            desiredTarget = glm::vec3(11.0f, 1.2f, -1.8f);
+            desiredDistance = 8.5f;
+            desiredYaw = -32.0f;
+            desiredPitch = 16.0f;
+            name = "East Shore Loungers [Key: L / 9]";
+            break;
+
+        case VIEW_SEA_BOATS:
+            // Focus on the Open Sea and Sailing Fleet
+            desiredTarget = glm::vec3(0.0f, 1.8f, 20.0f);
+            desiredDistance = 18.0f;
+            desiredYaw = 10.0f;
+            desiredPitch = 12.0f;
+            name = "Ocean Sailing Fleet [Key: 7]";
+            break;
+
+        case VIEW_OVERVIEW:
+        default:
+            // Full Scenic Overview of the beach, ocean, sun, and dunes
+            desiredTarget = glm::vec3(0.0f, 2.0f, 5.0f);
+            desiredDistance = 27.0f;
+            desiredYaw = 32.0f;
+            desiredPitch = 24.0f;
+            name = "Beach Panorama Overview [Key: O / R]";
+            break;
+        }
+
+        isTransitioning = true;
+        std::cout << "\n>>> [Camera View Preset] " << name << " <<<\n"
+                  << "    Target: (" << desiredTarget.x << ", " << desiredTarget.y << ", " << desiredTarget.z << ")"
+                  << " | Distance: " << desiredDistance << "m\n" << std::endl;
+
+        if (window)
+        {
+            std::string title = "Beach Day 3D - Focused on: " + name;
+            glfwSetWindowTitle(window, title.c_str());
+        }
+    }
+
+    void cycleNextPreset(GLFWwindow* window = nullptr)
+    {
+        int next = (currentPresetIndex + 1) % VIEW_PRESET_COUNT;
+        setPreset((ViewPreset)next, window);
+    }
+
     void handleScroll(double yoffset)
     {
+        isTransitioning = false;
         distance -= (float)yoffset * 0.8f;
         if (distance < 1.0f) distance = 1.0f;
         if (distance > 120.0f) distance = 120.0f;
@@ -69,6 +214,7 @@ public:
             if (action == GLFW_PRESS)
             {
                 isDraggingOrbit = true;
+                isTransitioning = false;
                 lastX = xpos;
                 lastY = ypos;
             }
@@ -82,6 +228,7 @@ public:
             if (action == GLFW_PRESS)
             {
                 isDraggingPan = true;
+                isTransitioning = false;
                 lastX = xpos;
                 lastY = ypos;
             }
@@ -96,6 +243,7 @@ public:
     {
         if (isDraggingOrbit)
         {
+            isTransitioning = false;
             float xoffset = (float)(xpos - lastX);
             float yoffset = (float)(lastY - ypos);
             lastX = xpos;
@@ -110,13 +258,13 @@ public:
         }
         else if (isDraggingPan)
         {
+            isTransitioning = false;
             float xoffset = (float)(xpos - lastX);
             float yoffset = (float)(ypos - lastY);
             lastX = xpos;
             lastY = ypos;
 
             float panSpeed = 0.008f * distance;
-            // Pan horizontally and vertically relative to view
             glm::vec3 camPos = getPosition();
             glm::vec3 forward = glm::normalize(target - camPos);
             glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
@@ -131,20 +279,65 @@ public:
     {
         float speed = 8.0f * deltaTime;
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        {
+            isTransitioning = false;
             distance = glm::max(1.0f, distance - speed);
+        }
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        {
+            isTransitioning = false;
             distance = glm::min(120.0f, distance + speed);
+        }
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        {
+            isTransitioning = false;
             yaw -= 45.0f * deltaTime;
+        }
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        {
+            isTransitioning = false;
             yaw += 45.0f * deltaTime;
+        }
         if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
         {
-            // Reset camera
-            target = glm::vec3(0.0f, 1.0f, 0.0f);
-            distance = 12.0f;
-            yaw = 45.0f;
-            pitch = 22.0f;
+            setPreset(VIEW_OVERVIEW, window);
+        }
+
+        // Arrow Key Pan Navigation across the 3D beach plane
+        float panSpeed = 10.0f * deltaTime;
+        float radYaw = glm::radians(yaw);
+        glm::vec3 forward(-sinf(radYaw), 0.0f, -cosf(radYaw));
+        glm::vec3 right(cosf(radYaw), 0.0f, -sinf(radYaw));
+
+        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+        {
+            isTransitioning = false;
+            target += forward * panSpeed;
+        }
+        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+        {
+            isTransitioning = false;
+            target -= forward * panSpeed;
+        }
+        if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+        {
+            isTransitioning = false;
+            target -= right * panSpeed;
+        }
+        if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+        {
+            isTransitioning = false;
+            target += right * panSpeed;
+        }
+        if (glfwGetKey(window, GLFW_KEY_PAGE_UP) == GLFW_PRESS)
+        {
+            isTransitioning = false;
+            target.y += panSpeed;
+        }
+        if (glfwGetKey(window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS)
+        {
+            isTransitioning = false;
+            target.y = glm::max(0.0f, target.y - panSpeed);
         }
     }
 };

@@ -111,13 +111,23 @@ inline void drawRobot(
     glm::vec3 accentYellow     = glm::vec3(0.95f, 0.80f, 0.20f); // Hazard / trim strip
 
     // 1. PELVIS / BASE (Center of Robot Hierarchy)
-    glm::mat4 pelvisMat = glm::scale(baseTransform, glm::vec3(0.50f, 0.22f, 0.35f));
+    // Keep the pelvis narrower than the shoulders, as on a human-sized service robot.
+    glm::mat4 pelvisMat = glm::scale(baseTransform, glm::vec3(0.48f, 0.20f, 0.32f));
     drawTransformedCube(shader, cube, pelvisMat, darkJointColor);
 
+    glm::mat4 waistMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.20f, 0.0f));
+    waistMat = glm::scale(waistMat, glm::vec3(0.28f, 0.18f, 0.25f));
+    drawTransformedSphere(shader, sphere, waistMat, darkJointColor);
+
     // 2. TORSO / CHEST
-    glm::mat4 torsoMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.40f, 0.0f));
-    glm::mat4 torsoScale = glm::scale(torsoMat, glm::vec3(0.60f, 0.60f, 0.40f));
+    glm::mat4 torsoMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.47f, 0.0f));
+    glm::mat4 torsoScale = glm::scale(torsoMat, glm::vec3(0.66f, 0.52f, 0.36f));
     drawTransformedCube(shader, cube, torsoScale, metalBodyColor);
+
+    // A slightly wider shoulder yoke gives the torso a believable load-bearing shape.
+    glm::mat4 shoulderYoke = glm::translate(torsoMat, glm::vec3(0.0f, 0.22f, 0.0f));
+    shoulderYoke = glm::scale(shoulderYoke, glm::vec3(0.78f, 0.10f, 0.34f));
+    drawTransformedCube(shader, cube, shoulderYoke, metalBodyColor);
 
     // Chest Front Indicator Screen / Panel
     glm::mat4 screenMat = glm::translate(torsoMat, glm::vec3(0.0f, 0.05f, 0.205f));
@@ -130,15 +140,15 @@ inline void drawRobot(
     drawTransformedSphere(shader, sphere, coreMat, chestDialColor, 64.0f, 0.5f, 1);
 
     // 3. NECK & HEAD
-    glm::mat4 neckMat = glm::translate(torsoMat, glm::vec3(0.0f, 0.35f, 0.0f));
-    glm::mat4 neckScale = glm::scale(neckMat, glm::vec3(0.16f, 0.12f, 0.16f));
+    glm::mat4 neckMat = glm::translate(torsoMat, glm::vec3(0.0f, 0.34f, 0.0f));
+    glm::mat4 neckScale = glm::scale(neckMat, glm::vec3(0.15f, 0.14f, 0.15f));
     drawTransformedSphere(shader, sphere, neckScale, darkJointColor);
 
     // Head (rotates with headYaw & headPitch)
-    glm::mat4 headMat = glm::translate(neckMat, glm::vec3(0.0f, 0.20f, 0.0f));
+    glm::mat4 headMat = glm::translate(neckMat, glm::vec3(0.0f, 0.21f, 0.0f));
     headMat = glm::rotate(headMat, glm::radians(headYaw), glm::vec3(0.0f, 1.0f, 0.0f));
     headMat = glm::rotate(headMat, glm::radians(headPitch), glm::vec3(1.0f, 0.0f, 0.0f));
-    glm::mat4 headScale = glm::scale(headMat, glm::vec3(0.42f, 0.38f, 0.36f));
+    glm::mat4 headScale = glm::scale(headMat, glm::vec3(0.40f, 0.34f, 0.34f));
     drawTransformedCube(shader, cube, headScale, metalBodyColor);
 
     // Visor Eyes (Cyan glowing bar)
@@ -169,30 +179,30 @@ inline void drawRobot(
         float armPitch = (side == -1) ? leftArmPitch : rightArmPitch;
 
         // Shoulder Joint
-        glm::mat4 shoulderMat = glm::translate(torsoMat, glm::vec3(side * 0.36f, 0.22f, 0.0f));
-        glm::mat4 shoulderBall = glm::scale(shoulderMat, glm::vec3(0.14f, 0.14f, 0.14f));
+        glm::mat4 shoulderMat = glm::translate(torsoMat, glm::vec3(side * 0.40f, 0.20f, 0.0f));
+        glm::mat4 shoulderBall = glm::scale(shoulderMat, glm::vec3(0.16f, 0.16f, 0.16f));
         drawTransformedSphere(shader, sphere, shoulderBall, darkJointColor);
 
         // Upper Arm
         glm::mat4 upperArm = glm::rotate(shoulderMat, glm::radians(armPitch), glm::vec3(1.0f, 0.0f, 0.0f));
         glm::mat4 upperArmSeg = glm::translate(upperArm, glm::vec3(0.0f, -0.18f, 0.0f));
-        glm::mat4 upperArmScale = glm::scale(upperArmSeg, glm::vec3(0.11f, 0.24f, 0.11f));
+        glm::mat4 upperArmScale = glm::scale(upperArmSeg, glm::vec3(0.12f, 0.28f, 0.12f));
         drawTransformedCube(shader, cube, upperArmScale, metalBodyColor);
 
         // Elbow Joint
-        glm::mat4 elbowMat = glm::translate(upperArm, glm::vec3(0.0f, -0.32f, 0.0f));
+        glm::mat4 elbowMat = glm::translate(upperArm, glm::vec3(0.0f, -0.34f, 0.0f));
         glm::mat4 elbowBall = glm::scale(elbowMat, glm::vec3(0.12f, 0.12f, 0.12f));
         drawTransformedSphere(shader, sphere, elbowBall, darkJointColor);
 
         // Forearm (bent forward slightly)
         glm::mat4 foreArm = glm::rotate(elbowMat, glm::radians(30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-        glm::mat4 foreArmSeg = glm::translate(foreArm, glm::vec3(0.0f, -0.16f, 0.0f));
-        glm::mat4 foreArmScale = glm::scale(foreArmSeg, glm::vec3(0.10f, 0.22f, 0.10f));
+        glm::mat4 foreArmSeg = glm::translate(foreArm, glm::vec3(0.0f, -0.17f, 0.0f));
+        glm::mat4 foreArmScale = glm::scale(foreArmSeg, glm::vec3(0.11f, 0.26f, 0.11f));
         drawTransformedCube(shader, cube, foreArmScale, metalBodyColor);
 
         // Hand / Gripper Clamp
-        glm::mat4 handMat = glm::translate(foreArm, glm::vec3(0.0f, -0.28f, 0.0f));
-        glm::mat4 handScale = glm::scale(handMat, glm::vec3(0.08f, 0.07f, 0.12f));
+        glm::mat4 handMat = glm::translate(foreArm, glm::vec3(0.0f, -0.32f, 0.025f));
+        glm::mat4 handScale = glm::scale(handMat, glm::vec3(0.13f, 0.10f, 0.16f));
         drawTransformedCube(shader, cube, handScale, darkJointColor);
     }
 
@@ -200,30 +210,30 @@ inline void drawRobot(
     for (int side = -1; side <= 1; side += 2)
     {
         // Hip Joint
-        glm::mat4 hipMat = glm::translate(baseTransform, glm::vec3(side * 0.18f, -0.06f, 0.05f));
+        glm::mat4 hipMat = glm::translate(baseTransform, glm::vec3(side * 0.16f, -0.07f, 0.04f));
         glm::mat4 hipBall = glm::scale(hipMat, glm::vec3(0.14f, 0.14f, 0.14f));
         drawTransformedSphere(shader, sphere, hipBall, darkJointColor);
 
         // Thigh (Rotated 80 degrees forward to sit on chair)
         glm::mat4 thighMat = glm::rotate(hipMat, glm::radians(legBendAngle), glm::vec3(1.0f, 0.0f, 0.0f));
-        glm::mat4 thighSeg = glm::translate(thighMat, glm::vec3(0.0f, -0.18f, 0.0f));
-        glm::mat4 thighScale = glm::scale(thighSeg, glm::vec3(0.13f, 0.28f, 0.13f));
+        glm::mat4 thighSeg = glm::translate(thighMat, glm::vec3(0.0f, -0.20f, 0.0f));
+        glm::mat4 thighScale = glm::scale(thighSeg, glm::vec3(0.14f, 0.32f, 0.14f));
         drawTransformedCube(shader, cube, thighScale, metalBodyColor);
 
         // Knee Joint
-        glm::mat4 kneeMat = glm::translate(thighMat, glm::vec3(0.0f, -0.34f, 0.0f));
+        glm::mat4 kneeMat = glm::translate(thighMat, glm::vec3(0.0f, -0.39f, 0.0f));
         glm::mat4 kneeBall = glm::scale(kneeMat, glm::vec3(0.13f, 0.13f, 0.13f));
         drawTransformedSphere(shader, sphere, kneeBall, darkJointColor);
 
         // Shin / Lower Leg (Bent down 80 degrees relative to thigh)
         glm::mat4 shinMat = glm::rotate(kneeMat, glm::radians(-legBendAngle), glm::vec3(1.0f, 0.0f, 0.0f));
-        glm::mat4 shinSeg = glm::translate(shinMat, glm::vec3(0.0f, -0.18f, 0.0f));
-        glm::mat4 shinScale = glm::scale(shinSeg, glm::vec3(0.12f, 0.26f, 0.12f));
+        glm::mat4 shinSeg = glm::translate(shinMat, glm::vec3(0.0f, -0.20f, 0.0f));
+        glm::mat4 shinScale = glm::scale(shinSeg, glm::vec3(0.13f, 0.32f, 0.13f));
         drawTransformedCube(shader, cube, shinScale, metalBodyColor);
 
         // Ankle / Foot
-        glm::mat4 footMat = glm::translate(shinMat, glm::vec3(0.0f, -0.32f, 0.06f));
-        glm::mat4 footScale = glm::scale(footMat, glm::vec3(0.13f, 0.08f, 0.22f));
+        glm::mat4 footMat = glm::translate(shinMat, glm::vec3(0.0f, -0.39f, 0.09f));
+        glm::mat4 footScale = glm::scale(footMat, glm::vec3(0.17f, 0.10f, 0.28f));
         drawTransformedCube(shader, cube, footScale, darkJointColor);
     }
 }
@@ -317,60 +327,74 @@ inline void drawBeachChair(
     glm::vec3 whiteStripe = glm::vec3(0.95f, 0.95f, 0.95f);
 
     // 1. CHAIR LEGS (4 vertical wooden supports)
-    float legX = 0.40f;
-    float legZ = 0.55f;
-    float legHeight = 0.45f;
+    // A real lounger is wider than its occupant and long enough to support the thighs.
+    float legX = 0.52f;
+    float legZ = 0.66f;
+    float legHeight = 0.44f;
     for (int sx = -1; sx <= 1; sx += 2)
     {
         for (int sz = -1; sz <= 1; sz += 2)
         {
             glm::mat4 legMat = glm::translate(baseTransform, glm::vec3(sx * legX, legHeight * 0.5f, sz * legZ));
-            legMat = glm::scale(legMat, glm::vec3(0.06f, legHeight, 0.06f));
+            legMat = glm::rotate(legMat, glm::radians(sz * 7.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+            legMat = glm::scale(legMat, glm::vec3(0.075f, legHeight, 0.075f));
             drawTransformedCube(shader, cube, legMat, woodColor);
         }
     }
 
     // 2. HORIZONTAL SEAT BASE FRAME
     glm::mat4 railLeft = glm::translate(baseTransform, glm::vec3(-legX, legHeight, 0.0f));
-    railLeft = glm::scale(railLeft, glm::vec3(0.06f, 0.06f, legZ * 2.2f));
+    railLeft = glm::scale(railLeft, glm::vec3(0.075f, 0.075f, legZ * 2.15f));
     drawTransformedCube(shader, cube, railLeft, woodColor);
 
     glm::mat4 railRight = glm::translate(baseTransform, glm::vec3(legX, legHeight, 0.0f));
-    railRight = glm::scale(railRight, glm::vec3(0.06f, 0.06f, legZ * 2.2f));
+    railRight = glm::scale(railRight, glm::vec3(0.075f, 0.075f, legZ * 2.15f));
     drawTransformedCube(shader, cube, railRight, woodColor);
 
     // 3. SEAT CUSHION / SLATS
-    int slats = 8;
+    int slats = 9;
     for (int i = 0; i < slats; ++i)
     {
         float zPos = -legZ + (float)i * ((legZ * 2.0f) / (float)(slats - 1));
         glm::vec3 slatColor = (i % 2 == 0) ? fabricColor : whiteStripe;
 
         glm::mat4 slatMat = glm::translate(baseTransform, glm::vec3(0.0f, legHeight + 0.035f, zPos));
-        slatMat = glm::scale(slatMat, glm::vec3(legX * 2.0f, 0.03f, 0.12f));
+        slatMat = glm::scale(slatMat, glm::vec3(legX * 1.88f, 0.045f, 0.13f));
         drawTransformedCube(shader, cube, slatMat, slatColor);
     }
 
     // 4. RECLINING BACKREST (Angled at 35 degrees backwards)
     glm::mat4 backPivot = glm::translate(baseTransform, glm::vec3(0.0f, legHeight + 0.05f, -legZ));
-    backPivot = glm::rotate(backPivot, glm::radians(-35.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    backPivot = glm::rotate(backPivot, glm::radians(-28.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 
     // Backrest side rails
     for (int sx = -1; sx <= 1; sx += 2)
     {
-        glm::mat4 backRail = glm::translate(backPivot, glm::vec3(sx * legX, 0.45f, 0.0f));
-        backRail = glm::scale(backRail, glm::vec3(0.06f, 0.90f, 0.06f));
+        glm::mat4 backRail = glm::translate(backPivot, glm::vec3(sx * legX, 0.52f, 0.0f));
+        backRail = glm::scale(backRail, glm::vec3(0.075f, 1.04f, 0.075f));
         drawTransformedCube(shader, cube, backRail, woodColor);
     }
 
     // Backrest slats
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 7; ++i)
     {
-        float yPos = 0.15f + (float)i * 0.14f;
+        float yPos = 0.14f + (float)i * 0.14f;
         glm::vec3 slatColor = (i % 2 == 0) ? fabricColor : whiteStripe;
         glm::mat4 bSlat = glm::translate(backPivot, glm::vec3(0.0f, yPos, 0.0f));
-        bSlat = glm::scale(bSlat, glm::vec3(legX * 2.0f, 0.09f, 0.025f));
+        bSlat = glm::scale(bSlat, glm::vec3(legX * 1.88f, 0.10f, 0.04f));
         drawTransformedCube(shader, cube, bSlat, slatColor);
+    }
+
+    // Armrests sit around elbow height and also brace the reclining back.
+    for (int sx = -1; sx <= 1; sx += 2)
+    {
+        glm::mat4 armPost = glm::translate(baseTransform, glm::vec3(sx * 0.56f, 0.66f, 0.18f));
+        armPost = glm::scale(armPost, glm::vec3(0.06f, 0.40f, 0.06f));
+        drawTransformedCube(shader, cube, armPost, woodColor);
+
+        glm::mat4 armRest = glm::translate(baseTransform, glm::vec3(sx * 0.56f, 0.86f, -0.12f));
+        armRest = glm::scale(armRest, glm::vec3(0.10f, 0.055f, 0.68f));
+        drawTransformedCube(shader, cube, armRest, woodColor);
     }
 }
 
@@ -394,88 +418,55 @@ inline void drawBoat(
     glm::vec3 redStripe  = glm::vec3(0.85f, 0.12f, 0.12f);
     glm::vec3 railWhite  = glm::vec3(0.90f, 0.90f, 0.92f);
 
-    // 1. LAYERED V-HULL (Multiple planks narrower at bottom, wider at top)
-    // Bottom keel plank
-    glm::mat4 keelMat = glm::translate(baseTransform, glm::vec3(0.0f, -0.08f, 0.0f));
-    keelMat = glm::scale(keelMat, glm::vec3(0.35f, 0.12f, 3.0f));
-    drawTransformedCube(shader, cube, keelMat, hullDark);
+    // 1. ROUNDED DISPLACEMENT HULL. Overlapping ellipsoids give a continuous,
+    // tapered silhouette; the lower form stays below the water like a real keel.
+    glm::mat4 hullBody = glm::translate(baseTransform, glm::vec3(0.0f, 0.08f, 0.10f));
+    hullBody = glm::scale(hullBody, glm::vec3(1.28f, 0.72f, 3.75f));
+    drawTransformedSphere(shader, sphere, hullBody, hullNavy);
 
-    // Lower hull planks (port & starboard, angled outward for V-shape)
+    glm::mat4 keelMat = glm::translate(baseTransform, glm::vec3(0.0f, -0.18f, -0.05f));
+    keelMat = glm::scale(keelMat, glm::vec3(0.42f, 0.48f, 2.75f));
+    drawTransformedSphere(shader, sphere, keelMat, hullDark);
+
+    // Waterline accents remain on the sides instead of cutting through the hull.
     for (int side = -1; side <= 1; side += 2)
     {
-        glm::mat4 lowerPlank = glm::translate(baseTransform, glm::vec3(side * 0.30f, 0.05f, 0.0f));
-        lowerPlank = glm::rotate(lowerPlank, glm::radians(side * -18.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        lowerPlank = glm::scale(lowerPlank, glm::vec3(0.40f, 0.14f, 2.9f));
-        drawTransformedCube(shader, cube, lowerPlank, hullNavy);
-    }
-
-    // Mid hull planks (wider, less angled)
-    for (int side = -1; side <= 1; side += 2)
-    {
-        glm::mat4 midPlank = glm::translate(baseTransform, glm::vec3(side * 0.52f, 0.18f, 0.0f));
-        midPlank = glm::rotate(midPlank, glm::radians(side * -8.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        midPlank = glm::scale(midPlank, glm::vec3(0.30f, 0.14f, 2.8f));
-        drawTransformedCube(shader, cube, midPlank, hullNavy);
-    }
-
-    // Upper hull / Gunwale planks
-    for (int side = -1; side <= 1; side += 2)
-    {
-        glm::mat4 upperPlank = glm::translate(baseTransform, glm::vec3(side * 0.62f, 0.30f, 0.0f));
-        upperPlank = glm::scale(upperPlank, glm::vec3(0.16f, 0.12f, 2.6f));
-        drawTransformedCube(shader, cube, upperPlank, hullNavy);
-    }
-
-    // Waterline stripe
-    glm::mat4 stripeMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.14f, 0.0f));
-    stripeMat = glm::scale(stripeMat, glm::vec3(1.22f, 0.035f, 2.85f));
-    drawTransformedCube(shader, cube, stripeMat, redStripe);
-
-    // 2. TAPERED BOW (Multiple stacked wedge cubes, progressively narrower)
-    for (int i = 0; i < 4; ++i)
-    {
-        float t = (float)i / 4.0f;
-        float z = 1.40f + t * 0.55f;
-        float w = (1.0f - t) * 1.0f + 0.10f;
-        float h = (1.0f - t) * 0.38f + 0.06f;
-        float y = 0.10f + t * 0.06f;
-
-        glm::mat4 bowSeg = glm::translate(baseTransform, glm::vec3(0.0f, y, z));
-        bowSeg = glm::scale(bowSeg, glm::vec3(w, h, 0.20f));
-        drawTransformedCube(shader, cube, bowSeg, hullNavy);
+        glm::mat4 stripeMat = glm::translate(baseTransform, glm::vec3(side * 0.615f, 0.13f, 0.02f));
+        stripeMat = glm::scale(stripeMat, glm::vec3(0.035f, 0.055f, 3.18f));
+        drawTransformedCube(shader, cube, stripeMat, redStripe);
     }
 
     // Bowsprit tip
-    glm::mat4 bowTip = glm::translate(baseTransform, glm::vec3(0.0f, 0.28f, 2.10f));
-    bowTip = glm::scale(bowTip, glm::vec3(0.08f, 0.06f, 0.35f));
+    glm::mat4 bowTip = glm::translate(baseTransform, glm::vec3(0.0f, 0.34f, 2.05f));
+    bowTip = glm::scale(bowTip, glm::vec3(0.055f, 0.055f, 0.52f));
     drawTransformedCube(shader, cube, bowTip, mastBrown);
 
     // 3. STERN (Flat transom)
-    glm::mat4 sternMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.14f, -1.35f));
-    sternMat = glm::scale(sternMat, glm::vec3(1.10f, 0.36f, 0.10f));
+    glm::mat4 sternMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.12f, -1.74f));
+    sternMat = glm::scale(sternMat, glm::vec3(1.04f, 0.43f, 0.10f));
     drawTransformedCube(shader, cube, sternMat, hullNavy);
 
     // 4. DECK SURFACE (Flat planks on top)
-    glm::mat4 deckMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.35f, 0.0f));
-    deckMat = glm::scale(deckMat, glm::vec3(1.10f, 0.04f, 2.40f));
+    glm::mat4 deckMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.39f, -0.02f));
+    deckMat = glm::scale(deckMat, glm::vec3(1.02f, 0.055f, 2.95f));
     drawTransformedCube(shader, cube, deckMat, deckTan);
 
     // Deck railing (thin top rails)
     for (int side = -1; side <= 1; side += 2)
     {
-        glm::mat4 railMat = glm::translate(baseTransform, glm::vec3(side * 0.56f, 0.38f, 0.0f));
-        railMat = glm::scale(railMat, glm::vec3(0.04f, 0.05f, 2.20f));
+        glm::mat4 railMat = glm::translate(baseTransform, glm::vec3(side * 0.54f, 0.44f, -0.02f));
+        railMat = glm::scale(railMat, glm::vec3(0.045f, 0.07f, 2.82f));
         drawTransformedCube(shader, cube, railMat, railWhite);
     }
 
     // 5. CABIN (Low-profile box on deck)
-    glm::mat4 cabinMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.46f, -0.35f));
-    cabinMat = glm::scale(cabinMat, glm::vec3(0.65f, 0.22f, 0.80f));
+    glm::mat4 cabinMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.52f, -0.48f));
+    cabinMat = glm::scale(cabinMat, glm::vec3(0.62f, 0.24f, 0.72f));
     drawTransformedCube(shader, cube, cabinMat, deckWhite);
 
     // Cabin roof
-    glm::mat4 roofMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.58f, -0.35f));
-    roofMat = glm::scale(roofMat, glm::vec3(0.70f, 0.03f, 0.85f));
+    glm::mat4 roofMat = glm::translate(baseTransform, glm::vec3(0.0f, 0.65f, -0.48f));
+    roofMat = glm::scale(roofMat, glm::vec3(0.70f, 0.035f, 0.80f));
     drawTransformedCube(shader, cube, roofMat, railWhite);
 
     // 6. VERTICAL MAST
@@ -495,28 +486,30 @@ inline void drawBoat(
     drawTransformedCube(shader, cube, boomMat, mastBrown);
 
     // 8. MAINSAIL (Proper tapered triangular sail)
-    for (int i = 0; i < 8; ++i)
+    const int mainSailSlices = 18;
+    for (int i = 0; i < mainSailSlices; ++i)
     {
-        float t = (float)i / 8.0f;
+        float t = ((float)i + 0.5f) / (float)mainSailSlices;
         float y = 0.90f + t * (mastHeight * 0.80f);
         float width = (1.0f - t) * 1.50f;
-        if (width < 0.05f) width = 0.05f;
 
         glm::mat4 sailSlice = glm::translate(baseTransform, glm::vec3(0.02f, y, -0.40f + t * 0.50f));
-        sailSlice = glm::scale(sailSlice, glm::vec3(0.015f, 0.30f, width));
+        sailSlice = glm::scale(sailSlice, glm::vec3(0.018f, mastHeight * 0.82f / mainSailSlices + 0.012f, width));
         drawTransformedCube(shader, cube, sailSlice, sailWhite);
     }
 
     // 9. JIB / FORESAIL
-    for (int i = 0; i < 6; ++i)
+    const int jibSlices = 14;
+    for (int i = 0; i < jibSlices; ++i)
     {
-        float t = (float)i / 6.0f;
+        float t = ((float)i + 0.5f) / (float)jibSlices;
         float y = 0.55f + t * (mastHeight * 0.60f);
-        float width = (1.0f - t) * 1.0f;
-        if (width < 0.04f) width = 0.04f;
+        float width = (1.0f - t) * 1.35f;
+        float rearEdge = 0.43f;
+        float centerZ = rearEdge + width * 0.5f;
 
-        glm::mat4 jibSlice = glm::translate(baseTransform, glm::vec3(-0.02f, y, 0.90f + t * 0.10f));
-        jibSlice = glm::scale(jibSlice, glm::vec3(0.015f, 0.28f, width));
+        glm::mat4 jibSlice = glm::translate(baseTransform, glm::vec3(-0.02f, y, centerZ));
+        jibSlice = glm::scale(jibSlice, glm::vec3(0.018f, mastHeight * 0.62f / jibSlices + 0.012f, width));
         drawTransformedCube(shader, cube, jibSlice, sailWhite);
     }
 }
@@ -541,8 +534,8 @@ inline void drawPalmTree(
     glm::vec3 leafGreen2   = glm::vec3(0.15f, 0.68f, 0.20f); // Bright highlight green
 
     // 1. CURVED SEGMENTED TRUNK (Stacked and progressively tilted nodes)
-    int trunkSegments = 10;
-    float segHeight = 0.55f;
+    int trunkSegments = 11;
+    float segHeight = 0.50f;
     glm::mat4 currentTransform = baseTransform;
 
     for (int i = 0; i < trunkSegments; ++i)
@@ -550,10 +543,18 @@ inline void drawPalmTree(
         float taper = 1.0f - ((float)i / (float)trunkSegments) * 0.38f;
         glm::vec3 segCol = (i % 2 == 0) ? barkColor : ringColor;
 
-        // Draw trunk segment
+        // Overlapping ellipsoids make a continuous, rounded, naturally tapered trunk.
         glm::mat4 segMat = glm::translate(currentTransform, glm::vec3(0.0f, segHeight * 0.5f, 0.0f));
-        segMat = glm::scale(segMat, glm::vec3(0.45f * taper, segHeight, 0.45f * taper));
-        drawTransformedCube(shader, cube, segMat, segCol);
+        segMat = glm::scale(segMat, glm::vec3(0.43f * taper, segHeight * 1.12f, 0.43f * taper));
+        drawTransformedSphere(shader, sphere, segMat, segCol);
+
+        // A shallow collar suggests the old leaf-scar rings seen on real palms.
+        if (i > 0)
+        {
+            glm::mat4 scarMat = glm::scale(currentTransform,
+                glm::vec3(0.45f * taper, 0.075f, 0.45f * taper));
+            drawTransformedSphere(shader, sphere, scarMat, ringColor);
+        }
 
         // Advance to next segment with slight tilt for natural curve
         currentTransform = glm::translate(currentTransform, glm::vec3(0.0f, segHeight, 0.0f));
@@ -561,9 +562,9 @@ inline void drawPalmTree(
     }
 
     // 2. COCONUT CLUSTER (Nestled tightly around crown ring, fully visible)
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 5; ++i)
     {
-        float angle = (float)i * 60.0f + 15.0f;
+        float angle = (float)i * 72.0f + 15.0f;
         glm::mat4 cocoMat = glm::rotate(currentTransform, glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f));
         cocoMat = glm::translate(cocoMat, glm::vec3(0.18f, -0.05f, 0.0f));
         cocoMat = glm::scale(cocoMat, glm::vec3(0.24f, 0.28f, 0.24f));
@@ -575,7 +576,7 @@ inline void drawPalmTree(
     capMat = glm::scale(capMat, glm::vec3(0.32f, 0.20f, 0.32f));
     drawTransformedSphere(shader, sphere, capMat, stemColor);
 
-    // 3. REALISTIC DOWNWARD-ARCHING PALM FRONDS (Three lush cascading tiers)
+    // 3. REALISTIC DOWNWARD-ARCHING PALM FRONDS (two staggered age tiers)
     // Positive rotation around local X tilts +Z down towards -Y (towards the ground).
     struct FrondTierDef {
         int count;
@@ -586,16 +587,14 @@ inline void drawPalmTree(
         glm::vec3 leafCol;
     };
 
-    FrondTierDef tiers[3] = {
-        // Tier 0: Top fronds (reach outward, then curve strongly downward)
-        { 6,   0.0f,  -4.0f, 1.05f, 1.0f, leafGreen2 },
-        // Tier 1: Mid fronds (arch outward and sweep downward)
-        { 6,  20.0f,  12.0f, 1.15f, 1.2f, leafGreen1 },
-        // Tier 2: Low fronds (mature leaves hanging deeply downward toward the trunk)
-        { 6,  40.0f,  26.0f, 1.22f, 1.4f, leafGreen1 }
+    FrondTierDef tiers[2] = {
+        // Young upper fronds reach upward before beginning their arch.
+        { 7,   0.0f, -12.0f, 1.00f, 0.70f, leafGreen2 },
+        // Mature lower fronds spread farther and hang more deeply.
+        { 7,  25.7f,  10.0f, 1.18f, 1.10f, leafGreen1 }
     };
 
-    for (int t = 0; t < 3; ++t)
+    for (int t = 0; t < 2; ++t)
     {
         const FrondTierDef& tier = tiers[t];
         float angleStep = 360.0f / (float)tier.count;
@@ -752,23 +751,23 @@ inline void drawRocks(
         glm::mat4 b = glm::translate(glm::mat4(1.0f), glm::vec3(-15.5f, 0.30f, 1.5f));
         b = glm::rotate(b, glm::radians(32.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 b1 = glm::scale(b, glm::vec3(1.8f, 0.90f, 1.5f));
-        drawTransformedCube(shader, cube, b1, rockGray1, 16.0f, 0.12f, 0);
+        drawTransformedSphere(shader, sphere, b1, rockGray1, 16.0f, 0.12f, 0);
         // Uneven bump on top
         glm::mat4 b2 = glm::translate(b, glm::vec3(0.25f, 0.42f, -0.15f));
         b2 = glm::rotate(b2, glm::radians(22.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         b2 = glm::rotate(b2, glm::radians(-12.0f), glm::vec3(1.0f, 0.0f, 0.0f));
         b2 = glm::scale(b2, glm::vec3(1.0f, 0.55f, 0.85f));
-        drawTransformedCube(shader, cube, b2, rockGray2, 16.0f, 0.12f, 0);
+        drawTransformedSphere(shader, sphere, b2, rockGray2, 16.0f, 0.12f, 0);
         // Side spur
         glm::mat4 b3 = glm::translate(b, glm::vec3(-0.65f, 0.10f, 0.30f));
         b3 = glm::rotate(b3, glm::radians(-28.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         b3 = glm::rotate(b3, glm::radians(15.0f), glm::vec3(0.0f, 0.0f, 1.0f));
         b3 = glm::scale(b3, glm::vec3(0.75f, 0.50f, 0.65f));
-        drawTransformedCube(shader, cube, b3, rockDark, 16.0f, 0.10f, 0);
+        drawTransformedSphere(shader, sphere, b3, rockDark, 16.0f, 0.10f, 0);
         // Moss patch
         glm::mat4 bm = glm::translate(b, glm::vec3(0.0f, 0.46f, 0.20f));
         bm = glm::scale(bm, glm::vec3(0.60f, 0.06f, 0.50f));
-        drawTransformedCube(shader, cube, bm, mossGreen, 8.0f, 0.05f, 0);
+        drawTransformedSphere(shader, sphere, bm, mossGreen, 8.0f, 0.05f, 0);
     }
 
     // Boulder 2 (Medium, rounded with sphere composite)
@@ -776,7 +775,7 @@ inline void drawRocks(
         glm::mat4 b = glm::translate(glm::mat4(1.0f), glm::vec3(-14.0f, 0.22f, 2.2f));
         b = glm::rotate(b, glm::radians(-18.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 b1 = glm::scale(b, glm::vec3(1.1f, 0.65f, 0.95f));
-        drawTransformedCube(shader, cube, b1, rockGray2, 16.0f, 0.12f, 0);
+        drawTransformedSphere(shader, sphere, b1, rockGray2, 16.0f, 0.12f, 0);
         glm::mat4 b2 = glm::translate(b, glm::vec3(0.15f, 0.20f, 0.0f));
         b2 = glm::rotate(b2, glm::radians(35.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         b2 = glm::scale(b2, glm::vec3(0.75f, 0.45f, 0.70f));
@@ -788,15 +787,15 @@ inline void drawRocks(
         glm::mat4 b = glm::translate(glm::mat4(1.0f), glm::vec3(-16.8f, 0.25f, 0.6f));
         b = glm::rotate(b, glm::radians(55.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 b1 = glm::scale(b, glm::vec3(1.3f, 1.0f, 1.1f));
-        drawTransformedCube(shader, cube, b1, rockDark, 16.0f, 0.10f, 0);
+        drawTransformedSphere(shader, sphere, b1, rockDark, 16.0f, 0.10f, 0);
         glm::mat4 b2 = glm::translate(b, glm::vec3(0.40f, 0.35f, -0.25f));
         b2 = glm::rotate(b2, glm::radians(42.0f), glm::vec3(1.0f, 0.3f, 0.0f));
         b2 = glm::scale(b2, glm::vec3(0.65f, 0.55f, 0.50f));
-        drawTransformedCube(shader, cube, b2, rockGray1, 16.0f, 0.12f, 0);
+        drawTransformedSphere(shader, sphere, b2, rockGray1, 16.0f, 0.12f, 0);
         glm::mat4 b3 = glm::translate(b, glm::vec3(-0.35f, 0.15f, 0.20f));
         b3 = glm::rotate(b3, glm::radians(-30.0f), glm::vec3(0.2f, 1.0f, 0.0f));
         b3 = glm::scale(b3, glm::vec3(0.55f, 0.40f, 0.60f));
-        drawTransformedCube(shader, cube, b3, rockGray2, 16.0f, 0.12f, 0);
+        drawTransformedSphere(shader, sphere, b3, rockGray2, 16.0f, 0.12f, 0);
     }
 
     // RIGHT CLUSTER (Moved out to X = +15.5 to +18.5)
@@ -805,16 +804,16 @@ inline void drawRocks(
         glm::mat4 b = glm::translate(glm::mat4(1.0f), glm::vec3(16.5f, 0.35f, 1.0f));
         b = glm::rotate(b, glm::radians(-40.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 b1 = glm::scale(b, glm::vec3(1.9f, 0.95f, 1.4f));
-        drawTransformedCube(shader, cube, b1, rockGray2, 16.0f, 0.12f, 0);
+        drawTransformedSphere(shader, sphere, b1, rockGray2, 16.0f, 0.12f, 0);
         glm::mat4 b2 = glm::translate(b, glm::vec3(-0.30f, 0.45f, 0.20f));
         b2 = glm::rotate(b2, glm::radians(18.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         b2 = glm::rotate(b2, glm::radians(10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
         b2 = glm::scale(b2, glm::vec3(1.2f, 0.50f, 0.90f));
-        drawTransformedCube(shader, cube, b2, rockGray1, 16.0f, 0.12f, 0);
+        drawTransformedSphere(shader, sphere, b2, rockGray1, 16.0f, 0.12f, 0);
         glm::mat4 b3 = glm::translate(b, glm::vec3(0.55f, 0.08f, -0.35f));
         b3 = glm::rotate(b3, glm::radians(-25.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         b3 = glm::scale(b3, glm::vec3(0.80f, 0.60f, 0.75f));
-        drawTransformedCube(shader, cube, b3, rockDark, 16.0f, 0.10f, 0);
+        drawTransformedSphere(shader, sphere, b3, rockDark, 16.0f, 0.10f, 0);
     }
 
     // Boulder 5 (Medium rounded)
@@ -826,7 +825,7 @@ inline void drawRocks(
         glm::mat4 b2 = glm::translate(b, glm::vec3(-0.30f, -0.08f, 0.15f));
         b2 = glm::rotate(b2, glm::radians(44.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         b2 = glm::scale(b2, glm::vec3(0.85f, 0.50f, 0.75f));
-        drawTransformedCube(shader, cube, b2, rockGray2, 16.0f, 0.12f, 0);
+        drawTransformedSphere(shader, sphere, b2, rockGray2, 16.0f, 0.12f, 0);
     }
 
     // Boulder 6 (Small pebble)
@@ -834,9 +833,58 @@ inline void drawRocks(
         glm::mat4 b = glm::translate(glm::mat4(1.0f), glm::vec3(15.2f, 0.15f, 2.2f));
         b = glm::rotate(b, glm::radians(62.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 b1 = glm::scale(b, glm::vec3(0.75f, 0.40f, 0.65f));
-        drawTransformedCube(shader, cube, b1, rockDark, 16.0f, 0.10f, 0);
+        drawTransformedSphere(shader, sphere, b1, rockDark, 16.0f, 0.10f, 0);
     }
 }
+
+// Organic standalone rock cluster positioned relative to baseTransform (ideal for showcase)
+inline void drawRockCluster(
+    Shader& shader,
+    const CubeMesh& cube,
+    const SphereMesh& sphere,
+    const glm::mat4& baseTransform)
+{
+    glm::vec3 rockGray1  = glm::vec3(0.40f, 0.42f, 0.44f);
+    glm::vec3 rockGray2  = glm::vec3(0.50f, 0.48f, 0.42f);
+    glm::vec3 rockDark   = glm::vec3(0.30f, 0.32f, 0.34f);
+    glm::vec3 rockLight  = glm::vec3(0.56f, 0.54f, 0.50f);
+    glm::vec3 mossGreen  = glm::vec3(0.32f, 0.40f, 0.28f);
+
+    // Main central boulder
+    glm::mat4 b1 = glm::translate(baseTransform, glm::vec3(0.0f, 0.45f, 0.0f));
+    b1 = glm::rotate(b1, glm::radians(25.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    b1 = glm::scale(b1, glm::vec3(2.2f, 1.1f, 1.8f));
+    drawTransformedSphere(shader, sphere, b1, rockGray1, 16.0f, 0.12f, 0);
+
+    // Uneven top ridge
+    glm::mat4 b2 = glm::translate(baseTransform, glm::vec3(0.35f, 0.85f, -0.20f));
+    b2 = glm::rotate(b2, glm::radians(18.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    b2 = glm::scale(b2, glm::vec3(1.3f, 0.70f, 1.0f));
+    drawTransformedSphere(shader, sphere, b2, rockGray2, 16.0f, 0.12f, 0);
+
+    // Front-left spur
+    glm::mat4 b3 = glm::translate(baseTransform, glm::vec3(-0.95f, 0.30f, 0.45f));
+    b3 = glm::rotate(b3, glm::radians(-32.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    b3 = glm::scale(b3, glm::vec3(1.1f, 0.65f, 0.95f));
+    drawTransformedSphere(shader, sphere, b3, rockDark, 16.0f, 0.10f, 0);
+
+    // Rear-right supporting boulder
+    glm::mat4 b4 = glm::translate(baseTransform, glm::vec3(0.85f, 0.35f, -0.45f));
+    b4 = glm::rotate(b4, glm::radians(42.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    b4 = glm::scale(b4, glm::vec3(1.2f, 0.68f, 0.85f));
+    drawTransformedSphere(shader, sphere, b4, rockLight, 16.0f, 0.10f, 0);
+
+    // Small foreground accent stone
+    glm::mat4 b5 = glm::translate(baseTransform, glm::vec3(-0.25f, 0.20f, 0.95f));
+    b5 = glm::scale(b5, glm::vec3(0.65f, 0.38f, 0.55f));
+    drawTransformedSphere(shader, sphere, b5, rockDark, 16.0f, 0.10f, 0);
+
+    // Moss layer on top
+    glm::mat4 bm = glm::translate(baseTransform, glm::vec3(0.05f, 0.96f, 0.15f));
+    bm = glm::scale(bm, glm::vec3(0.75f, 0.10f, 0.60f));
+    drawTransformedSphere(shader, sphere, bm, mossGreen, 8.0f, 0.05f, 0);
+}
+
 
 // ============================================================================
 // OBJECT 10: LIFEGUARD WATCH TOWER

@@ -87,14 +87,26 @@ int main()
     std::cout << "  Student: Hassan Mohammed Naquibul Hoque | Roll: 2107077\n";
     std::cout << "=======================================================\n";
     std::cout << "  Camera Controls:\n";
-    std::cout << "    [Left Mouse Drag]  : Orbit around the scene\n";
+    std::cout << "    [Left Mouse Drag]  : Orbit around current focal point\n";
     std::cout << "    [Right Mouse Drag] : Pan camera target\n";
+    std::cout << "    [Arrow Keys]       : Pan smoothly across the beach\n";
+    std::cout << "    [Page Up / Down]   : Raise / Lower camera height\n";
     std::cout << "    [Scroll / W / S]   : Zoom in / Zoom out\n";
-    std::cout << "    [A / D]            : Rotate around scene\n";
-    std::cout << "    [R]                : Reset camera view\n";
-    std::cout << "    [Z]                : Toggle Wireframe mode\n";
-    std::cout << "    [1 / 2]            : Turn Robot Head Left/Right\n";
+    std::cout << "    [A / D]            : Rotate azimuth around focus\n";
+    std::cout << "\n";
+    std::cout << "  Quick Object Focus (Instant Smooth Fly-To):\n";
+    std::cout << "    [B] / [5]          : Focus on SAILBOAT (Plank hull, mast, sails)\n";
+    std::cout << "    [T] / [6]          : Focus on LIFEGUARD TOWER (Stilts, ladder, roof)\n";
+    std::cout << "    [C] / [7]          : Focus on CENTER ROBOT & UMBRELLA\n";
+    std::cout << "    [P] / [8]          : Focus on PALM TREES & COASTAL ROCKS\n";
+    std::cout << "    [L] / [9]          : Focus on EAST SHORE LOUNGE CHAIRS\n";
+    std::cout << "    [O] / [R]          : PANORAMIC BEACH OVERVIEW\n";
+    std::cout << "    [TAB]              : Tour / Cycle through EVERY object one-by-one!\n";
+    std::cout << "\n";
+    std::cout << "  Interactive Parameters:\n";
+    std::cout << "    [1 / 2]            : Turn Robot Head Left / Right\n";
     std::cout << "    [3 / 4]            : Adjust Umbrella Tilt Angle\n";
+    std::cout << "    [Z]                : Toggle Wireframe mode\n";
     std::cout << "=======================================================\n";
 
     // 4. Build and Compile Shader Program
@@ -118,9 +130,10 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // Process Input
+        // Process Input & Camera
         processInput(window);
         camera.handleKeyboard(window, deltaTime);
+        camera.update(deltaTime);
 
         // Clear Color (Sky Blue)
         glClearColor(0.48f, 0.74f, 0.95f, 1.0f);
@@ -320,6 +333,79 @@ void processInput(GLFWwindow* window)
         g_umbrellaTilt = glm::max(0.0f, g_umbrellaTilt - 20.0f * deltaTime);
     if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
         g_umbrellaTilt = glm::min(40.0f, g_umbrellaTilt + 20.0f * deltaTime);
+
+    // ========================================================================
+    // Quick Camera View Presets (Focus on objects)
+    // ========================================================================
+    // B or 5: Focus on Sailboat
+    static bool bKeyPressed = false;
+    if ((glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS) && !bKeyPressed)
+    {
+        camera.setPreset(VIEW_BOAT, window);
+        bKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_B) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_5) == GLFW_RELEASE)
+        bKeyPressed = false;
+
+    // T or 6: Focus on Lifeguard Watch Tower
+    static bool tKeyPressed = false;
+    if ((glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_6) == GLFW_PRESS) && !tKeyPressed)
+    {
+        camera.setPreset(VIEW_TOWER, window);
+        tKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_T) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_6) == GLFW_RELEASE)
+        tKeyPressed = false;
+
+    // C or 7: Focus on Center Robot & Umbrella
+    static bool cKeyPressed = false;
+    if ((glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_7) == GLFW_PRESS) && !cKeyPressed)
+    {
+        camera.setPreset(VIEW_ROBOT, window);
+        cKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_C) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_7) == GLFW_RELEASE)
+        cKeyPressed = false;
+
+    // P or 8: Focus on Palm Trees & Coastal Rocks
+    static bool pKeyPressed = false;
+    if ((glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_8) == GLFW_PRESS) && !pKeyPressed)
+    {
+        camera.setPreset(VIEW_PALM_ROCKS, window);
+        pKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_P) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_8) == GLFW_RELEASE)
+        pKeyPressed = false;
+
+    // L or 9: Focus on East Shore Loungers & Umbrellas
+    static bool lKeyPressed = false;
+    if ((glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_9) == GLFW_PRESS) && !lKeyPressed)
+    {
+        camera.setPreset(VIEW_RIGHT_BEACH, window);
+        lKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_L) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_9) == GLFW_RELEASE)
+        lKeyPressed = false;
+
+    // O or 0: Full Panoramic Beach Overview
+    static bool oKeyPressed = false;
+    if ((glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS) && !oKeyPressed)
+    {
+        camera.setPreset(VIEW_OVERVIEW, window);
+        oKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_O) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_0) == GLFW_RELEASE)
+        oKeyPressed = false;
+
+    // TAB: Tour / Cycle through every object one after another
+    static bool tabKeyPressed = false;
+    if (glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS && !tabKeyPressed)
+    {
+        camera.cycleNextPreset(window);
+        tabKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_TAB) == GLFW_RELEASE)
+        tabKeyPressed = false;
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
