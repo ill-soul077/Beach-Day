@@ -21,6 +21,14 @@ enum ViewPreset
     VIEW_PRESET_COUNT
 };
 
+enum ProjectionMode
+{
+    PROJ_PERSPECTIVE = 0,
+    PROJ_ORTHO_TOP,
+    PROJ_ORTHO_SIDE,
+    PROJ_MODE_COUNT
+};
+
 class Camera
 {
 public:
@@ -32,6 +40,9 @@ public:
     float fov;
     float nearPlane;
     float farPlane;
+
+    ProjectionMode projMode;
+    float orthoSize;
 
     bool firstMouse;
     double lastX;
@@ -49,7 +60,8 @@ public:
 
     Camera(glm::vec3 targetPos = glm::vec3(0.0f, 1.0f, 0.0f), float dist = 12.0f)
         : target(targetPos), distance(dist), yaw(45.0f), pitch(22.0f),
-          fov(45.0f), nearPlane(0.1f), farPlane(300.0f),
+          fov(45.0f), nearPlane(0.1f), farPlane(2000.0f),
+          projMode(PROJ_PERSPECTIVE), orthoSize(22.0f),
           firstMouse(true), lastX(0.0), lastY(0.0),
           isDraggingOrbit(false), isDraggingPan(false),
           desiredTarget(targetPos), desiredDistance(dist), desiredYaw(45.0f), desiredPitch(22.0f),
@@ -71,12 +83,45 @@ public:
 
     glm::mat4 getViewMatrix() const
     {
+        if (projMode == PROJ_ORTHO_TOP)
+        {
+            // Orthographic Top View looking straight down at the beach layout
+            return glm::lookAt(glm::vec3(target.x, target.y + 45.0f, target.z + 0.001f),
+                               target,
+                               glm::vec3(0.0f, 0.0f, -1.0f));
+        }
+        else if (projMode == PROJ_ORTHO_SIDE)
+        {
+            // Orthographic Side View looking along coastal profile
+            return glm::lookAt(glm::vec3(target.x + 45.0f, target.y + 2.0f, target.z),
+                               target,
+                               glm::vec3(0.0f, 1.0f, 0.0f));
+        }
         return glm::lookAt(getPosition(), target, glm::vec3(0.0f, 1.0f, 0.0f));
     }
 
     glm::mat4 getProjectionMatrix(float aspectRatio) const
     {
-        return glm::perspective(glm::radians(fov), aspectRatio, nearPlane, farPlane);
+        if (projMode == PROJ_PERSPECTIVE)
+        {
+            return glm::perspective(glm::radians(fov), aspectRatio, nearPlane, farPlane);
+        }
+        else
+        {
+            float halfWidth = orthoSize * aspectRatio;
+            float halfHeight = orthoSize;
+            return glm::ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, -500.0f, 2000.0f);
+        }
+    }
+
+    void cycleProjectionMode()
+    {
+        projMode = (ProjectionMode)((projMode + 1) % PROJ_MODE_COUNT);
+        std::cout << "\n>>> [Camera Projection Mode] "
+                  << (projMode == PROJ_PERSPECTIVE ? "Perspective Projection (Eye Depth View)" :
+                      projMode == PROJ_ORTHO_TOP ? "Orthographic Projection (Top Plan View)" :
+                      "Orthographic Projection (Side Elevation View)")
+                  << " <<<\n" << std::endl;
     }
 
     void update(float deltaTime)
@@ -172,12 +217,13 @@ public:
 
         case VIEW_OVERVIEW:
         default:
-            // Full Scenic Overview of the beach, ocean, sun, and dunes
-            desiredTarget = glm::vec3(0.0f, 2.0f, 5.0f);
-            desiredDistance = 27.0f;
-            desiredYaw = 32.0f;
-            desiredPitch = 24.0f;
-            name = "Beach Panorama Overview [Key: O / R]";
+            // Ocean-facing establishing shot: sea -> beach -> coconut belt ->
+            // low forested island ridge, matching the Saint Martin reference.
+            desiredTarget = glm::vec3(0.0f, 12.0f, -92.0f);
+            desiredDistance = 355.0f;
+            desiredYaw = 0.0f;
+            desiredPitch = 42.0f;
+            name = "Saint Martin Island Panorama [Key: O / R]";
             break;
         }
 
@@ -204,7 +250,7 @@ public:
         isTransitioning = false;
         distance -= (float)yoffset * 0.8f;
         if (distance < 1.0f) distance = 1.0f;
-        if (distance > 120.0f) distance = 120.0f;
+        if (distance > 600.0f) distance = 600.0f;
     }
 
     void handleMouseButton(int button, int action, double xpos, double ypos)
@@ -286,7 +332,7 @@ public:
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
         {
             isTransitioning = false;
-            distance = glm::min(120.0f, distance + speed);
+            distance = glm::min(600.0f, distance + speed);
         }
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
         {

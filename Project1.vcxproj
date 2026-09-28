@@ -169,6 +169,10 @@
   <ItemGroup>
     <None Include="default.frag" />
     <None Include="default.vert" />
+    <None Include="skybox.frag" />
+    <None Include="skybox.vert" />
+    <None Include="water.frag" />
+    <None Include="water.vert" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
@@ -176,6 +180,8 @@
     <ClInclude Include="MeshPrimitives.h" />
     <ClInclude Include="SceneObjects.h" />
     <ClInclude Include="shaderClass.h" />
+    <ClInclude Include="Skybox.h" />
+    <ClInclude Include="TextureManager.h" />
     <ClInclude Include="VAO.h" />
     <ClInclude Include="VBO.h" />
   </ItemGroup>
