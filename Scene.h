@@ -551,6 +551,98 @@ public:
 };
 
 // ============================================================================
+// BASE PRIMITIVE: PROCEDURAL TRIANGULAR PRISM MESH
+// Unit dimensions along X, Y, Z centered at origin [-0.5, 0.5]^3.
+// Cross section in XY plane:
+// Apex at (0, +0.5, z), Bottom-left at (-0.5, -0.5, z), Bottom-right at (+0.5, -0.5, z).
+// Extends from z = -0.5 to z = +0.5.
+// Composed of 2 triangular caps (front & back) + 3 rectangular faces (bottom, left slope, right slope).
+// Exact outward face normals for accurate diffuse and specular Phong lighting.
+// ============================================================================
+class PrismMesh
+{
+public:
+    GLuint VAO, VBO;
+    GLsizei vertexCount;
+
+    PrismMesh() : VAO(0), VBO(0), vertexCount(24)
+    {
+        const float nRightX = 0.894427f;
+        const float nRightY = 0.447214f;
+
+        // 24 vertices (8 triangles * 3 vertices): posX, posY, posZ, normX, normY, normZ, u, v
+        const GLfloat vertices[] = {
+            // Front Triangle (Normal: 0, 0, 1)
+            -0.5f, -0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   0.0f, 0.0f,
+             0.5f, -0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   1.0f, 0.0f,
+             0.0f,  0.5f,  0.5f,   0.0f,  0.0f,  1.0f,   0.5f, 1.0f,
+
+            // Back Triangle (Normal: 0, 0, -1)
+             0.5f, -0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   0.0f, 0.0f,
+            -0.5f, -0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   1.0f, 0.0f,
+             0.0f,  0.5f, -0.5f,   0.0f,  0.0f, -1.0f,   0.5f, 1.0f,
+
+            // Bottom Face (Normal: 0, -1, 0)
+            -0.5f, -0.5f, -0.5f,   0.0f, -1.0f,  0.0f,   0.0f, 0.0f,
+             0.5f, -0.5f, -0.5f,   0.0f, -1.0f,  0.0f,   1.0f, 0.0f,
+             0.5f, -0.5f,  0.5f,   0.0f, -1.0f,  0.0f,   1.0f, 1.0f,
+            -0.5f, -0.5f, -0.5f,   0.0f, -1.0f,  0.0f,   0.0f, 0.0f,
+             0.5f, -0.5f,  0.5f,   0.0f, -1.0f,  0.0f,   1.0f, 1.0f,
+            -0.5f, -0.5f,  0.5f,   0.0f, -1.0f,  0.0f,   0.0f, 1.0f,
+
+            // Right Slope Face (Normal: +nRightX, +nRightY, 0)
+             0.5f, -0.5f,  0.5f,   nRightX, nRightY, 0.0f,   0.0f, 0.0f,
+             0.5f, -0.5f, -0.5f,   nRightX, nRightY, 0.0f,   1.0f, 0.0f,
+             0.0f,  0.5f, -0.5f,   nRightX, nRightY, 0.0f,   1.0f, 1.0f,
+             0.5f, -0.5f,  0.5f,   nRightX, nRightY, 0.0f,   0.0f, 0.0f,
+             0.0f,  0.5f, -0.5f,   nRightX, nRightY, 0.0f,   1.0f, 1.0f,
+             0.0f,  0.5f,  0.5f,   nRightX, nRightY, 0.0f,   0.0f, 1.0f,
+
+            // Left Slope Face (Normal: -nRightX, +nRightY, 0)
+            -0.5f, -0.5f, -0.5f,  -nRightX, nRightY, 0.0f,   0.0f, 0.0f,
+            -0.5f, -0.5f,  0.5f,  -nRightX, nRightY, 0.0f,   1.0f, 0.0f,
+             0.0f,  0.5f,  0.5f,  -nRightX, nRightY, 0.0f,   1.0f, 1.0f,
+            -0.5f, -0.5f, -0.5f,  -nRightX, nRightY, 0.0f,   0.0f, 0.0f,
+             0.0f,  0.5f,  0.5f,  -nRightX, nRightY, 0.0f,   1.0f, 1.0f,
+             0.0f,  0.5f, -0.5f,  -nRightX, nRightY, 0.0f,   0.0f, 1.0f
+        };
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (void*)(3 * sizeof(GLfloat)));
+        glEnableVertexAttribArray(1);
+
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (void*)(6 * sizeof(GLfloat)));
+        glEnableVertexAttribArray(2);
+
+        glBindVertexArray(0);
+    }
+
+    void draw() const
+    {
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+        glBindVertexArray(0);
+    }
+
+    void cleanup()
+    {
+        if (VAO) glDeleteVertexArrays(1, &VAO);
+        if (VBO) glDeleteBuffers(1, &VBO);
+        VAO = 0;
+        VBO = 0;
+    }
+};
+
+// ============================================================================
 // TRIANGULATED ISLAND BACKDROP
 // A proper heightfield with computed normals. This is the hill geometry; it
 // replaces the former collection of oversized ellipsoids.
@@ -1087,22 +1179,22 @@ public:
     }
     void draw(Shader& shader,const glm::mat4& transform) const
     {
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"model"),1,GL_FALSE,glm::value_ptr(transform));
-        glUniform1i(glGetUniformLocation(shader.ID,"boatHullPass"),1);
-        glUniform1f(glGetUniformLocation(shader.ID,"boatWaterHeight"),transform[3].y);
-        glUniform1i(glGetUniformLocation(shader.ID,"useTexture"),0);
-        glUniform1i(glGetUniformLocation(shader.ID,"shadingMode"),0);
-        glUniform1i(glGetUniformLocation(shader.ID,"unlit"),0);
-        glUniform1f(glGetUniformLocation(shader.ID,"specularStrength"),0.45f);
+        glUniformMatrix4fv(shader.location("model"),1,GL_FALSE,glm::value_ptr(transform));
+        glUniform1i(shader.location("boatHullPass"),1);
+        glUniform1f(shader.location("boatWaterHeight"),transform[3].y);
+        glUniform1i(shader.location("useTexture"),0);
+        glUniform1i(shader.location("shadingMode"),0);
+        glUniform1i(shader.location("unlit"),0);
+        glUniform1f(shader.location("specularStrength"),0.45f);
         glBindVertexArray(vao);
         for(const Part& p:parts)
         {
-            glUniform3fv(glGetUniformLocation(shader.ID,"objectColor"),1,glm::value_ptr(p.color));
-            glUniform1f(glGetUniformLocation(shader.ID,"shininess"),p.gloss);
+            glUniform3fv(shader.location("objectColor"),1,glm::value_ptr(p.color));
+            glUniform1f(shader.location("shininess"),p.gloss);
             glDrawArrays(GL_TRIANGLES,p.first,p.count);
         }
         glBindVertexArray(0);
-        glUniform1i(glGetUniformLocation(shader.ID,"boatHullPass"),0);
+        glUniform1i(shader.location("boatHullPass"),0);
     }
     void cleanup() { glDeleteBuffers(1,&vbo); glDeleteVertexArrays(1,&vao); vbo=vao=0; }
 };
@@ -1151,13 +1243,13 @@ public:
     }
     void draw(Shader& shader,const glm::mat4& transform) const
     {
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"model"),1,GL_FALSE,glm::value_ptr(transform));
-        glUniform3f(glGetUniformLocation(shader.ID,"objectColor"),0.90f,0.89f,0.82f);
-        glUniform1f(glGetUniformLocation(shader.ID,"specularStrength"),0.05f);
-        glUniform1f(glGetUniformLocation(shader.ID,"shininess"),12);
-        glUniform1i(glGetUniformLocation(shader.ID,"boatSailPass"),1);
+        glUniformMatrix4fv(shader.location("model"),1,GL_FALSE,glm::value_ptr(transform));
+        glUniform3f(shader.location("objectColor"),0.90f,0.89f,0.82f);
+        glUniform1f(shader.location("specularStrength"),0.05f);
+        glUniform1f(shader.location("shininess"),12);
+        glUniform1i(shader.location("boatSailPass"),1);
         glBindVertexArray(vao);glDrawArrays(GL_TRIANGLES,0,count);glBindVertexArray(0);
-        glUniform1i(glGetUniformLocation(shader.ID,"boatSailPass"),0);
+        glUniform1i(shader.location("boatSailPass"),0);
     }
     void cleanup(){glDeleteBuffers(1,&vbo);glDeleteVertexArrays(1,&vao);vbo=vao=0;}
 };
@@ -1224,11 +1316,11 @@ public:
     }
     void draw(Shader& shader,const glm::mat4& m,const glm::vec3& color) const
     {
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"model"),1,GL_FALSE,glm::value_ptr(m));
-        glUniform3fv(glGetUniformLocation(shader.ID,"objectColor"),1,glm::value_ptr(color));
-        glUniform1f(glGetUniformLocation(shader.ID,"shininess"),48);
-        glUniform1f(glGetUniformLocation(shader.ID,"specularStrength"),.25f);
-        glUniform1i(glGetUniformLocation(shader.ID,"unlit"),0);
+        glUniformMatrix4fv(shader.location("model"),1,GL_FALSE,glm::value_ptr(m));
+        glUniform3fv(shader.location("objectColor"),1,glm::value_ptr(color));
+        glUniform1f(shader.location("shininess"),48);
+        glUniform1f(shader.location("specularStrength"),.25f);
+        glUniform1i(shader.location("unlit"),0);
         glBindVertexArray(vao);glDrawArrays(GL_TRIANGLES,0,count);glBindVertexArray(0);
     }
 };
@@ -1277,6 +1369,22 @@ inline glm::mat4 getGroundShadowMatrix(const glm::vec3& lightPos, float groundY 
 // ZERO built-in GLUT or GLU objects are used!
 // ============================================================================
 
+// Primitive capture keeps the existing geometry and material definitions as the
+// single source of truth. Only animated palm transforms are refreshed per frame.
+struct ForestInstance {
+    glm::mat4 model;
+    glm::vec3 color,material;
+};
+struct ForestCapture {
+    std::vector<ForestInstance> cubes,leaves,spheres;
+    std::vector<glm::vec3> roots;
+    bool textured=false;
+    void add(bool sphere,const glm::mat4& model,glm::vec3 color,float gloss,float spec,int unlit) {
+        (sphere?spheres:textured?leaves:cubes).push_back({model,color,{gloss,spec,(float)unlit}});
+    }
+};
+inline ForestCapture* g_forestCapture=nullptr;
+
 inline void drawTransformedCube(
     Shader& shader,
     const CubeMesh& cube,
@@ -1286,11 +1394,12 @@ inline void drawTransformedCube(
     float specularStrength = 0.25f,
     int unlit = 0)
 {
-    GLuint modelLoc = glGetUniformLocation(shader.ID, "model");
-    GLuint colorLoc = glGetUniformLocation(shader.ID, "objectColor");
-    GLuint specLoc  = glGetUniformLocation(shader.ID, "specularStrength");
-    GLuint shinLoc  = glGetUniformLocation(shader.ID, "shininess");
-    GLuint unlitLoc = glGetUniformLocation(shader.ID, "unlit");
+    if(g_forestCapture){g_forestCapture->add(false,model,color,shininess,specularStrength,unlit);return;}
+    GLuint modelLoc = shader.location("model");
+    GLuint colorLoc = shader.location("objectColor");
+    GLuint specLoc  = shader.location("specularStrength");
+    GLuint shinLoc  = shader.location("shininess");
+    GLuint unlitLoc = shader.location("unlit");
 
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
     glUniform3fv(colorLoc, 1, glm::value_ptr(color));
@@ -1310,11 +1419,12 @@ inline void drawTransformedSphere(
     float specularStrength = 0.35f,
     int unlit = 0)
 {
-    GLuint modelLoc = glGetUniformLocation(shader.ID, "model");
-    GLuint colorLoc = glGetUniformLocation(shader.ID, "objectColor");
-    GLuint specLoc  = glGetUniformLocation(shader.ID, "specularStrength");
-    GLuint shinLoc  = glGetUniformLocation(shader.ID, "shininess");
-    GLuint unlitLoc = glGetUniformLocation(shader.ID, "unlit");
+    if(g_forestCapture){g_forestCapture->add(true,model,color,shininess,specularStrength,unlit);return;}
+    GLuint modelLoc = shader.location("model");
+    GLuint colorLoc = shader.location("objectColor");
+    GLuint specLoc  = shader.location("specularStrength");
+    GLuint shinLoc  = shader.location("shininess");
+    GLuint unlitLoc = shader.location("unlit");
 
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
     glUniform3fv(colorLoc, 1, glm::value_ptr(color));
@@ -1334,11 +1444,11 @@ inline void drawTransformedFrustum(
     float specularStrength = 0.25f,
     int unlit = 0)
 {
-    glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
-    glUniform3fv(glGetUniformLocation(shader.ID, "objectColor"), 1, glm::value_ptr(color));
-    glUniform1f(glGetUniformLocation(shader.ID, "specularStrength"), specularStrength);
-    glUniform1f(glGetUniformLocation(shader.ID, "shininess"), shininess);
-    glUniform1i(glGetUniformLocation(shader.ID, "unlit"), unlit);
+    glUniformMatrix4fv(shader.location("model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniform3fv(shader.location("objectColor"), 1, glm::value_ptr(color));
+    glUniform1f(shader.location("specularStrength"), specularStrength);
+    glUniform1f(shader.location("shininess"), shininess);
+    glUniform1i(shader.location("unlit"), unlit);
     mesh.draw();
 }
 
@@ -1351,11 +1461,11 @@ inline void drawTransformedGore(
     float specularStrength = 0.20f,
     int unlit = 0)
 {
-    GLuint modelLoc = glGetUniformLocation(shader.ID, "model");
-    GLuint colorLoc = glGetUniformLocation(shader.ID, "objectColor");
-    GLuint specLoc  = glGetUniformLocation(shader.ID, "specularStrength");
-    GLuint shinLoc  = glGetUniformLocation(shader.ID, "shininess");
-    GLuint unlitLoc = glGetUniformLocation(shader.ID, "unlit");
+    GLuint modelLoc = shader.location("model");
+    GLuint colorLoc = shader.location("objectColor");
+    GLuint specLoc  = shader.location("specularStrength");
+    GLuint shinLoc  = shader.location("shininess");
+    GLuint unlitLoc = shader.location("unlit");
 
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
     glUniform3fv(colorLoc, 1, glm::value_ptr(color));
@@ -1366,11 +1476,33 @@ inline void drawTransformedGore(
     gore.draw();
 }
 
+inline void drawTransformedPrism(
+    Shader& shader,
+    const PrismMesh& prism,
+    const glm::mat4& model,
+    const glm::vec3& color,
+    float shininess = 16.0f,
+    float specularStrength = 0.15f,
+    int unlit = 0)
+{
+    glUniformMatrix4fv(shader.location("model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniform3fv(shader.location("objectColor"), 1, glm::value_ptr(color));
+    glUniform1f(shader.location("specularStrength"), specularStrength);
+    glUniform1f(shader.location("shininess"), shininess);
+    glUniform1i(shader.location("unlit"), unlit);
+    prism.draw();
+}
+
 // ============================================================================
 // OBJECT 1: ROBOT (SEATED UNDER UMBRELLA)
 // Constructed hierarchically with cubes and spheres.
 // Fully editable parameters: head turn, arm gestures, leg seating angles.
 // ============================================================================
+struct RobotLegPose {
+    float hipPitch[2]={0,0},kneePitch[2]={0,0},anklePitch[2]={0,0};
+    float shinLength=.39f,hipDrop=.07f;
+};
+
 inline void drawRobot(
     Shader& shader,
     const CubeMesh& cube,
@@ -1381,7 +1513,8 @@ inline void drawRobot(
     float leftArmPitch = -25.0f,
     float rightArmPitch = 20.0f,
     float legBendAngle = 80.0f,
-    float hipSpread = 0.16f)
+    float hipSpread = 0.16f,
+    const RobotLegPose* legPose = nullptr)
 {
     // Color Palette
     glm::vec3 metalBodyColor   = glm::vec3(0.72f, 0.76f, 0.82f); // Brushed steel
@@ -1490,12 +1623,16 @@ inline void drawRobot(
     for (int side = -1; side <= 1; side += 2)
     {
         // Hip Joint
-        glm::mat4 hipMat = glm::translate(baseTransform, glm::vec3(side * hipSpread, -0.07f, 0.04f));
+        glm::mat4 hipMat = glm::translate(baseTransform, glm::vec3(side * hipSpread, legPose?-legPose->hipDrop:-.07f, 0.04f));
         glm::mat4 hipBall = glm::scale(hipMat, glm::vec3(0.14f, 0.14f, 0.14f));
         drawTransformedSphere(shader, sphere, hipBall, darkJointColor);
 
         // Thigh (Rotated 80 degrees forward to sit on chair)
-        glm::mat4 thighMat = glm::rotate(hipMat, glm::radians(legBendAngle), glm::vec3(1.0f, 0.0f, 0.0f));
+        int index=side==-1?0:1;
+        float hipPitch=legPose?legPose->hipPitch[index]:legBendAngle;
+        float kneePitch=legPose?legPose->kneePitch[index]:-legBendAngle;
+        float shinLength=legPose?legPose->shinLength:.39f;
+        glm::mat4 thighMat = glm::rotate(hipMat, glm::radians(hipPitch), glm::vec3(1.0f, 0.0f, 0.0f));
         glm::mat4 thighSeg = glm::translate(thighMat, glm::vec3(0.0f, -0.20f, 0.0f));
         glm::mat4 thighScale = glm::scale(thighSeg, glm::vec3(0.14f, 0.32f, 0.14f));
         drawTransformedCube(shader, cube, thighScale, metalBodyColor);
@@ -1506,13 +1643,15 @@ inline void drawRobot(
         drawTransformedSphere(shader, sphere, kneeBall, darkJointColor);
 
         // Shin / Lower Leg (Bent down 80 degrees relative to thigh)
-        glm::mat4 shinMat = glm::rotate(kneeMat, glm::radians(-legBendAngle), glm::vec3(1.0f, 0.0f, 0.0f));
-        glm::mat4 shinSeg = glm::translate(shinMat, glm::vec3(0.0f, -0.20f, 0.0f));
-        glm::mat4 shinScale = glm::scale(shinSeg, glm::vec3(0.13f, 0.32f, 0.13f));
+        glm::mat4 shinMat = glm::rotate(kneeMat, glm::radians(kneePitch), glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::mat4 shinSeg = glm::translate(shinMat, glm::vec3(0.0f, legPose?-shinLength*.5f:-.20f, 0.0f));
+        glm::mat4 shinScale = glm::scale(shinSeg, glm::vec3(0.13f, shinLength-.07f, 0.13f));
         drawTransformedCube(shader, cube, shinScale, metalBodyColor);
 
         // Ankle / Foot
-        glm::mat4 footMat = glm::translate(shinMat, glm::vec3(0.0f, -0.39f, 0.09f));
+        glm::mat4 footMat = glm::translate(shinMat, glm::vec3(0.0f, -shinLength, 0));
+        if(legPose)footMat=glm::rotate(footMat,glm::radians(legPose->anklePitch[index]),glm::vec3(1,0,0));
+        footMat=glm::translate(footMat,glm::vec3(0,0,.09f));
         glm::mat4 footScale = glm::scale(footMat, glm::vec3(0.17f, 0.10f, 0.28f));
         drawTransformedCube(shader, cube, footScale, darkJointColor);
     }
@@ -1523,6 +1662,45 @@ inline void drawRobot(
 // Hierarchical modeling: Tilting the pole automatically tilts the canopy!
 // Canopy is crafted from alternating coral red and white gore panels.
 // ============================================================================
+struct UmbrellaAnimationState {
+    bool targetOpen=true,keyDown=false;
+    float openAmount=1,elapsed=0,startAmount=1;
+    static constexpr float duration=1.5f;
+    bool press(bool down) {
+        bool toggled=down && !keyDown;keyDown=down;
+        if(toggled){targetOpen=!targetOpen;startAmount=openAmount;elapsed=0;}
+        return toggled;
+    }
+    void update(float dt) {
+        if(!std::isfinite(dt) || dt<=0)return;
+        elapsed=glm::min(duration,elapsed+dt);
+        if(duration-elapsed<.00001f)elapsed=duration;
+        float t=elapsed/duration;t=t*t*(3-2*t);
+        openAmount=glm::clamp(glm::mix(startAmount,targetOpen?1.f:0.f,t),0.f,1.f);
+    }
+    const char* label()const {
+        if(targetOpen && openAmount>=1)return "OPEN";
+        if(!targetOpen && openAmount<=0)return "CLOSED";
+        return targetOpen?"OPENING":"CLOSING";
+    }
+};
+
+// Hinge at the existing apex: positive X rotation lowers a radial (+Z) rib.
+// Width narrows as fabric gathers; Y is never compressed, retaining the
+// original top/underside separation and valance thickness.
+inline glm::mat4 umbrellaPanelTransform(float opening,int sector) {
+    float fold=1-glm::clamp(opening,0.f,1.f);
+    glm::mat4 panel=glm::rotate(glm::mat4(1),glm::radians(sector*30.f),glm::vec3(0,1,0));
+    if(fold==0)return panel; // Preserve the fully-open mesh exactly.
+    panel=glm::translate(panel,glm::vec3(0,.12f,.0773f));
+    panel=glm::rotate(panel,glm::radians(60.f*fold),glm::vec3(1,0,0));
+    // Gather the cloth radially before lowering it past a seated occupant.
+    // Return to full hanging length at the closed endpoint.
+    float radialGather=1-.25f*sinf(3.14159265f*fold);
+    panel=glm::scale(panel,glm::vec3(glm::mix(1.f,.10f,fold),1,radialGather));
+    return glm::translate(panel,glm::vec3(0,-.12f,-.0773f));
+}
+
 inline void drawUmbrella(
     Shader& shader,
     const CubeMesh& cube,
@@ -1531,7 +1709,7 @@ inline void drawUmbrella(
     const glm::mat4& baseTransform,
     float poleTiltAngle = 12.0f,
     float poleHeight = 3.2f,
-    float canopyScale = 1.0f)
+    float canopyScale = 1.0f,float opening=1.0f)
 {
     glm::vec3 poleColor   = glm::vec3(0.85f, 0.85f, 0.88f); // White/silver aluminum pole
     glm::vec3 ribColor    = glm::vec3(0.35f, 0.35f, 0.38f); // Steel canopy ribs
@@ -1585,11 +1763,19 @@ inline void drawUmbrella(
     glEnable(GL_CULL_FACE);glCullFace(GL_BACK);glFrontFace(GL_CCW);
     for (int i = 0; i < 12; ++i)
     {
-        float angle = (float)i * 30.0f;
         glm::vec3 panelColor = (i % 2 == 0) ? stripeRed : stripeWhite;
 
-        glm::mat4 goreMat = glm::rotate(canopyCrown, glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 goreMat = canopyCrown*umbrellaPanelTransform(opening,i);
         drawTransformedGore(shader, gore, goreMat, panelColor);
+        // Two short rectangular ribs follow each original gore's underside.
+        // Ends are inset slightly so steel never meets an adjacent panel.
+        const glm::vec3 ribPoints[]={{0,.10f,.09f},{0,-.34f,1.11f},{0,-.82f,2.05f}};
+        for(int segment=0;segment<2;++segment){
+            glm::vec3 a=ribPoints[segment],b=ribPoints[segment+1],d=b-a;
+            glm::mat4 rib=glm::translate(goreMat,(a+b)*.5f);
+            rib=glm::rotate(rib,atan2f(-d.y,d.z),glm::vec3(1,0,0));
+            drawTransformedCube(shader,cube,glm::scale(rib,glm::vec3(.022f,.022f,glm::length(d))),ribColor,24,.18f);
+        }
     }
     glCullFace(previousCullMode);glFrontFace(previousWinding);
     if(!previouslyCulled)glDisable(GL_CULL_FACE);
@@ -1747,8 +1933,8 @@ inline void drawBoat(
     if (texMgr && enableTextures)
     {
         texMgr->bind(TEX_SAIL);
-        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 1);
-        glUniform1f(glGetUniformLocation(shader.ID, "texScale"), 1.5f);
+        glUniform1i(shader.location("useTexture"), 1);
+        glUniform1f(shader.location("texScale"), 1.5f);
     }
 
     boatSail(false).draw(shader,baseTransform);
@@ -1756,7 +1942,7 @@ inline void drawBoat(
 
     if (texMgr && enableTextures)
     {
-        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 0);
+        glUniform1i(shader.location("useTexture"), 0);
         texMgr->unbind();
     }
 }
@@ -2218,6 +2404,7 @@ inline void drawPalmTree(
     const TextureManager* texMgr = nullptr,
     bool enableTextures = true)
 {
+    if(g_forestCapture)g_forestCapture->roots.emplace_back(baseTransform[3]);
     glm::vec3 barkColor    = glm::vec3(0.48f, 0.32f, 0.18f); // Palm bark brown
     glm::vec3 ringColor    = glm::vec3(0.38f, 0.24f, 0.12f); // Segment ring groove
     glm::vec3 coconutColor = glm::vec3(0.30f, 0.17f, 0.08f); // Coconuts
@@ -2327,11 +2514,12 @@ inline void drawPalmTree(
                 // 3b. Pairs of Angled Feathery Leaflets (Left & Right)
                 if (seg >= 1) // skip bare stem base near crown
                 {
-                    if (texMgr && enableTextures)
+                    if(g_forestCapture)g_forestCapture->textured=true;
+                    if (texMgr && enableTextures && !g_forestCapture)
                     {
                         texMgr->bind(TEX_PALM);
-                        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 1);
-                        glUniform1f(glGetUniformLocation(shader.ID, "texScale"), 1.0f);
+                        glUniform1i(shader.location("useTexture"), 1);
+                        glUniform1f(shader.location("texScale"), 1.0f);
                     }
 
                     // Leaflet span peaks in the middle (segments 2-3) and tapers toward the tip
@@ -2361,13 +2549,14 @@ inline void drawPalmTree(
                         drawTransformedCube(shader, cube, rightLeaflet, tier.leafCol);
                     }
 
-                    if (texMgr && enableTextures)
+                    if (texMgr && enableTextures && !g_forestCapture)
                     {
-                        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 0);
+                        glUniform1i(shader.location("useTexture"), 0);
                         texMgr->unbind();
                     }
                 }
 
+                if(g_forestCapture)g_forestCapture->textured=false;
                 // Advance to the end of this segment
                 spineNode = glm::translate(spineNode, glm::vec3(0.0f, 0.0f, segLen));
             }
@@ -2472,11 +2661,11 @@ inline void drawSea(
     if (texMgr && enableTextures)
     {
         texMgr->bind(TEX_WATER);
-        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 1);
-        glUniform1f(glGetUniformLocation(shader.ID, "texScale"), 36.0f);
+        glUniform1i(shader.location("useTexture"), 1);
+        glUniform1f(shader.location("texScale"), 36.0f);
     }
     // GOURAUD SHADING for expansive sea water surface
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 1);
+    glUniform1i(shader.location("shadingMode"), 1);
 
     glm::mat4 seaMat = glm::translate(glm::mat4(1.0f), seaCenter);
     seaMat = glm::scale(seaMat, glm::vec3(width, 0.2f, depth));
@@ -2486,12 +2675,12 @@ inline void drawSea(
 
     if (texMgr && enableTextures)
     {
-        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 0);
+        glUniform1i(shader.location("useTexture"), 0);
         texMgr->unbind();
     }
 
     // Restore to default Phong
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 0);
+    glUniform1i(shader.location("shadingMode"), 0);
 }
 
 // ============================================================================
@@ -2596,43 +2785,57 @@ inline void drawOceanWaves(
     float boatSpeed = 0.0f,
     const glm::vec4& sailboat2 = glm::vec4(0.0f),
     const glm::vec4& sailboat3 = glm::vec4(0.0f),
-    const std::vector<glm::vec4>& wakeTrail = {})
+    const std::vector<glm::vec4>& wakeTrail = {},
+    const std::vector<glm::mat4>& hullTransforms = {})
 {
     waterShader.Activate();
 
     glm::mat4 model = glm::mat4(1.0f);
-    glUniformMatrix4fv(glGetUniformLocation(waterShader.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
-    glUniformMatrix4fv(glGetUniformLocation(waterShader.ID, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(waterShader.ID, "proj"), 1, GL_FALSE, glm::value_ptr(proj));
-    glUniform3fv(glGetUniformLocation(waterShader.ID, "viewPos"), 1, glm::value_ptr(camPos));
-    glUniform3fv(glGetUniformLocation(waterShader.ID, "lightDir"), 1, glm::value_ptr(lightDir));
-    glUniform3fv(glGetUniformLocation(waterShader.ID, "lightColor"), 1, glm::value_ptr(lightColor));
-    glUniform1f(glGetUniformLocation(waterShader.ID, "ambientStrength"), ambientStrength);
-    glUniform1f(glGetUniformLocation(waterShader.ID, "time"), time);
-    glUniform1f(glGetUniformLocation(waterShader.ID, "seaLevel"),g_sceneSeaLevel);
+    glUniformMatrix4fv(waterShader.location("model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniformMatrix4fv(waterShader.location("view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(waterShader.location("proj"), 1, GL_FALSE, glm::value_ptr(proj));
+    glUniform3fv(waterShader.location("viewPos"), 1, glm::value_ptr(camPos));
+    glUniform3fv(waterShader.location("lightDir"), 1, glm::value_ptr(lightDir));
+    glUniform3fv(waterShader.location("lightColor"), 1, glm::value_ptr(lightColor));
+    glUniform1f(waterShader.location("ambientStrength"), ambientStrength);
+    glUniform1f(waterShader.location("time"), time);
+    glUniform1f(waterShader.location("seaLevel"),g_sceneSeaLevel);
 
     // Boat interaction uniforms for dynamic wake and bow wave
-    glUniform3fv(glGetUniformLocation(waterShader.ID, "boatPos"), 1, glm::value_ptr(boatPos));
-    glUniform1f(glGetUniformLocation(waterShader.ID, "boatHeading"), boatHeading);
-    glUniform1f(glGetUniformLocation(waterShader.ID, "boatSpeed"), boatSpeed);
+    glUniform3fv(waterShader.location("boatPos"), 1, glm::value_ptr(boatPos));
+    glUniform1f(waterShader.location("boatHeading"), boatHeading);
+    glUniform1f(waterShader.location("boatSpeed"), boatSpeed);
     const glm::vec4 hulls[] = {
         glm::vec4(boatPos.x,boatPos.z,boatHeading,1.65f), sailboat2, sailboat3
     };
-    glUniform4fv(glGetUniformLocation(waterShader.ID,"hulls[0]"),3,glm::value_ptr(hulls[0]));
+    glUniform4fv(waterShader.location("hulls[0]"),3,glm::value_ptr(hulls[0]));
+    // Use the exact buoyant pose, including pitch/roll, to exclude water only
+    // from the enclosed hull volume. Flat poses keep older callers compatible.
+    glm::mat4 inverseHulls[3];
+    for(int i=0;i<3;++i)
+    {
+        glm::mat4 pose=glm::translate(glm::mat4(1),glm::vec3(hulls[i].x,boatPos.y,hulls[i].y));
+        pose=glm::rotate(pose,glm::radians(hulls[i].z),glm::vec3(0,1,0));
+        pose=glm::scale(pose,glm::vec3(glm::max(hulls[i].w,.001f)));
+        if(i<(int)hullTransforms.size())pose=hullTransforms[i];
+        inverseHulls[i]=glm::inverse(pose);
+    }
+    glUniformMatrix4fv(waterShader.location("inverseHulls[0]"),3,GL_FALSE,glm::value_ptr(inverseHulls[0]));
+    glUniform1i(waterShader.location("hullMaskEnabled"),1);
     int wakeCount = glm::min((int)wakeTrail.size(),32);
-    glUniform1i(glGetUniformLocation(waterShader.ID,"wakeCount"),wakeCount);
+    glUniform1i(waterShader.location("wakeCount"),wakeCount);
     if(wakeCount>0)
-        glUniform4fv(glGetUniformLocation(waterShader.ID,"wakeTrail[0]"),wakeCount,glm::value_ptr(wakeTrail[0]));
+        glUniform4fv(waterShader.location("wakeTrail[0]"),wakeCount,glm::value_ptr(wakeTrail[0]));
 
     if (texMgr && enableTextures)
     {
         texMgr->bind(TEX_FOAM, GL_TEXTURE0);
-        glUniform1i(glGetUniformLocation(waterShader.ID, "foamTex"), 0);
-        glUniform1i(glGetUniformLocation(waterShader.ID, "useFoamTex"), 1);
+        glUniform1i(waterShader.location("foamTex"), 0);
+        glUniform1i(waterShader.location("useFoamTex"), 1);
     }
     else
     {
-        glUniform1i(glGetUniformLocation(waterShader.ID, "useFoamTex"), 0);
+        glUniform1i(waterShader.location("useFoamTex"), 0);
     }
 
     glEnable(GL_BLEND);
@@ -2663,18 +2866,18 @@ inline void drawCoastalBathymetryAndSeabed(
     if (texMgr && enableTextures)
     {
         texMgr->bind(TEX_SAND);
-        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 1);
-        glUniform1f(glGetUniformLocation(shader.ID, "texScale"), 18.0f);
+        glUniform1i(shader.location("useTexture"), 1);
+        glUniform1f(shader.location("texScale"), 18.0f);
     }
     // GOURAUD SHADING for smooth sloping coastal bathymetry
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 1);
+    glUniform1i(shader.location("shadingMode"), 1);
 
     glm::mat4 model = glm::mat4(1.0f);
-    GLuint modelLoc = glGetUniformLocation(shader.ID, "model");
-    GLuint colorLoc = glGetUniformLocation(shader.ID, "objectColor");
-    GLuint specLoc  = glGetUniformLocation(shader.ID, "specularStrength");
-    GLuint shinLoc  = glGetUniformLocation(shader.ID, "shininess");
-    GLuint unlitLoc = glGetUniformLocation(shader.ID, "unlit");
+    GLuint modelLoc = shader.location("model");
+    GLuint colorLoc = shader.location("objectColor");
+    GLuint specLoc  = shader.location("specularStrength");
+    GLuint shinLoc  = shader.location("shininess");
+    GLuint unlitLoc = shader.location("unlit");
 
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
     glUniform3fv(colorLoc, 1, glm::value_ptr(sandColor));
@@ -2686,11 +2889,11 @@ inline void drawCoastalBathymetryAndSeabed(
 
     if (texMgr && enableTextures)
     {
-        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 0);
+        glUniform1i(shader.location("useTexture"), 0);
         texMgr->unbind();
     }
 
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 0);
+    glUniform1i(shader.location("shadingMode"), 0);
 }
 
 // ============================================================================
@@ -2704,13 +2907,13 @@ inline void drawWaterDepthSkirt(
     // Deep ocean cross-section cutaway wall color (Diagram A block diagram)
     glm::vec3 cutawayColor = glm::vec3(0.04f, 0.22f, 0.40f);
 
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 0); // Phong
+    glUniform1i(shader.location("shadingMode"), 0); // Phong
     glm::mat4 model = glm::mat4(1.0f);
-    GLuint modelLoc = glGetUniformLocation(shader.ID, "model");
-    GLuint colorLoc = glGetUniformLocation(shader.ID, "objectColor");
-    GLuint specLoc  = glGetUniformLocation(shader.ID, "specularStrength");
-    GLuint shinLoc  = glGetUniformLocation(shader.ID, "shininess");
-    GLuint unlitLoc = glGetUniformLocation(shader.ID, "unlit");
+    GLuint modelLoc = shader.location("model");
+    GLuint colorLoc = shader.location("objectColor");
+    GLuint specLoc  = shader.location("specularStrength");
+    GLuint shinLoc  = shader.location("shininess");
+    GLuint unlitLoc = shader.location("unlit");
 
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
     glUniform3fv(colorLoc, 1, glm::value_ptr(cutawayColor));
@@ -2811,11 +3014,11 @@ inline void drawBeach(
     if (texMgr && enableTextures)
     {
         texMgr->bind(TEX_SAND);
-        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 1);
-        glUniform1f(glGetUniformLocation(shader.ID, "texScale"), 20.0f);
+        glUniform1i(shader.location("useTexture"), 1);
+        glUniform1f(shader.location("texScale"), 20.0f);
     }
     // GOURAUD SHADING for smooth color interpolation across sand terrain
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 1);
+    glUniform1i(shader.location("shadingMode"), 1);
 
     glm::mat4 sandMat = glm::translate(glm::mat4(1.0f), beachCenter);
     sandMat = glm::scale(sandMat, glm::vec3(width, 0.25f, depth));
@@ -2825,12 +3028,12 @@ inline void drawBeach(
 
     if (texMgr && enableTextures)
     {
-        glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 0);
+        glUniform1i(shader.location("useTexture"), 0);
         texMgr->unbind();
     }
 
     // Restore to default Phong
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 0);
+    glUniform1i(shader.location("shadingMode"), 0);
 }
 
 // ============================================================================
@@ -2921,6 +3124,43 @@ inline void drawCoastalDunesAndHills(
 // Coastal coconut palm groves along the dunes framing the entire island.
 // Outward-leaning trunks curve naturally towards the sea like real atoll palms.
 // ============================================================================
+inline const std::vector<glm::vec3>& islandBananaPositions() {
+    static const std::vector<glm::vec3> positions = {
+            glm::vec3(-9.0f, 0.0f, -18.0f), glm::vec3(17.0f, 0.0f, -25.0f),
+            glm::vec3(-25.0f, 0.0f, -36.0f), glm::vec3(7.0f, 0.0f, -48.0f),
+            glm::vec3(-48.0f, 0.0f, -72.0f), glm::vec3(43.0f, 0.0f, -80.0f),
+            glm::vec3(-55.0f, 0.0f, -113.0f), glm::vec3(52.0f, 0.0f, -126.0f),
+            glm::vec3(-37.0f, 0.0f, -158.0f), glm::vec3(31.0f, 0.0f, -181.0f),
+            glm::vec3(-18.0f, 0.0f, 15.0f), glm::vec3(22.0f, 0.0f, 16.0f),
+            glm::vec3(-38.0f, 0.0f, 20.0f), glm::vec3(39.0f, 0.0f, 19.0f),
+            glm::vec3(-60.0f, 0.0f, -45.0f), glm::vec3(62.0f, 0.0f, -40.0f),
+            glm::vec3(-15.0f, 0.0f, -210.0f), glm::vec3(18.0f, 0.0f, -205.0f)
+        };
+    return positions;
+}
+
+inline const std::vector<glm::vec3>& islandPandanusPositions() {
+    static const std::vector<glm::vec3> positions = {
+            glm::vec3(28.0f, 0.0f, -20.0f), glm::vec3(-20.0f, 0.0f, -47.0f),
+            glm::vec3(19.0f, 0.0f, -61.0f), glm::vec3(-31.0f, 0.0f, -70.0f),
+            glm::vec3(61.0f, 0.0f, -54.0f), glm::vec3(-62.0f, 0.0f, -91.0f),
+            glm::vec3(60.0f, 0.0f, -111.0f), glm::vec3(-53.0f, 0.0f, -139.0f),
+            glm::vec3(44.0f, 0.0f, -166.0f), glm::vec3(-24.0f, 0.0f, -196.0f),
+            glm::vec3(-52.0f, 0.0f, 14.0f), glm::vec3(54.0f, 0.0f, 12.0f),
+            glm::vec3(-5.0f, 0.0f, 22.0f), glm::vec3(8.0f, 0.0f, 21.0f),
+            glm::vec3(-70.0f, 0.0f, -120.0f), glm::vec3(68.0f, 0.0f, -135.0f)
+        };
+    return positions;
+}
+
+inline glm::vec3 safeSolidTreeRoot(float x,float z) {
+    // Move only trees encroaching on the seaward driving lane, minimally inland.
+    for(int i=0;i<200 && getIslandSignedDistance(x,z)<10.0f;++i){
+        glm::vec2 gradient(getIslandSignedDistance(x+.1f,z)-getIslandSignedDistance(x-.1f,z),getIslandSignedDistance(x,z+.1f)-getIslandSignedDistance(x,z-.1f));
+        if(glm::length(gradient)<.00001f)break;gradient=glm::normalize(gradient);x+=gradient.x*.1f;z+=gradient.y*.1f;}
+    return {x,getCoastalTerrainElevation(x,z),z};
+}
+
 inline void drawBackgroundPalmForest(
     Shader& shader,
     const CubeMesh& cube,
@@ -2986,8 +3226,7 @@ inline void drawBackgroundPalmForest(
 
     for (const auto& t : bgTrees)
     {
-        float groundY = getCoastalTerrainElevation(t.x, t.z);
-        glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(t.x, groundY, t.z));
+        glm::mat4 m = glm::translate(glm::mat4(1.0f), safeSolidTreeRoot(t.x,t.z));
         m = glm::rotate(m, glm::radians(t.rotY), glm::vec3(0.0f, 1.0f, 0.0f));
         m = glm::scale(m, glm::vec3(t.scale));
         drawPalmTree(shader, cube, sphere, m, t.trunkCurve, windSway, texMgr, enableTextures);
@@ -3005,7 +3244,7 @@ inline void drawIslandTerrainBackdrop(
     const CubeMesh& cube,
     const SphereMesh& sphere,
     const TextureManager* textures = nullptr,
-    bool enableTextures = true)
+    bool enableTextures = true,bool includeForest=true)
 {
     // Rich Tropical Foliage Color Palette (Layered Rainforest Canopy)
     const glm::vec3 jungleDark(0.040f, 0.20f, 0.07f);    // Deep rainforest understory shadow
@@ -3018,24 +3257,27 @@ inline void drawIslandTerrainBackdrop(
     const glm::vec3 palmLeaf1(0.14f, 0.58f, 0.16f);      // Vibrant palm frond green
     const glm::vec3 palmLeaf2(0.18f, 0.66f, 0.20f);      // Bright sunlit frond green
 
-    glUniform1i(glGetUniformLocation(shader.ID, "terrainPalette"), 1);
-    glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), textures && enableTextures);
-    if (textures && enableTextures) { textures->bind(TEX_SAND); glUniform1f(glGetUniformLocation(shader.ID, "texScale"), 14.0f); }
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 1);
-    glUniform1f(glGetUniformLocation(shader.ID, "seaLevel"), g_sceneSeaLevel);
+    if(!g_forestCapture) {
+    glUniform1i(shader.location("terrainPalette"), 1);
+    glUniform1i(shader.location("useTexture"), textures && enableTextures);
+    if (textures && enableTextures) { textures->bind(TEX_SAND); glUniform1f(shader.location("texScale"), 14.0f); }
+    glUniform1i(shader.location("shadingMode"), 1);
+    glUniform1f(shader.location("seaLevel"), g_sceneSeaLevel);
     glm::mat4 identity(1.0f);
-    glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, glm::value_ptr(identity));
+    glUniformMatrix4fv(shader.location("model"), 1, GL_FALSE, glm::value_ptr(identity));
     glm::vec3 baseColor(0.28f, 0.34f, 0.16f);
-    glUniform3fv(glGetUniformLocation(shader.ID, "objectColor"), 1, glm::value_ptr(baseColor));
-    glUniform1f(glGetUniformLocation(shader.ID, "specularStrength"), 0.04f);
-    glUniform1f(glGetUniformLocation(shader.ID, "shininess"), 7.0f);
-    glUniform1i(glGetUniformLocation(shader.ID, "unlit"), 0);
+    glUniform3fv(shader.location("objectColor"), 1, glm::value_ptr(baseColor));
+    glUniform1f(shader.location("specularStrength"), 0.04f);
+    glUniform1f(shader.location("shininess"), 7.0f);
+    glUniform1i(shader.location("unlit"), 0);
     terrain.draw();
-    glUniform1i(glGetUniformLocation(shader.ID, "terrainPalette"), 0);
-    glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 0);
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 0);
+    glUniform1i(shader.location("terrainPalette"), 0);
+    glUniform1i(shader.location("useTexture"), 0);
+    glUniform1i(shader.location("shadingMode"), 0);
     if (textures && enableTextures) textures->unbind();
 
+    }
+    if(!includeForest)return;
     // 1. DENSE MULTI-TIERED TROPICAL CANOPY (480 canopy clusters covering the mountain)
     for (int i = 0; i < 480; ++i)
     {
@@ -3051,6 +3293,7 @@ inline void drawIslandTerrainBackdrop(
             continue;
 
         float baseY = getIslandBackdropElevation(x, z);
+        if(g_forestCapture)g_forestCapture->roots.emplace_back(x,baseY,z);
         float h = 2.2f + islandHash(i, 3) * 2.8f;
         float crownScale = 1.35f + islandHash(i, 5) * 1.45f; // broad spreading canopy domes
 
@@ -3103,6 +3346,7 @@ inline void drawIslandTerrainBackdrop(
             continue;
 
         float groundY = getCoastalTerrainElevation(px, pz);
+        if(g_forestCapture)g_forestCapture->roots.emplace_back(px,groundY,pz);
         float palmHeight = 8.5f + islandHash(p, 5) * 6.5f; // 8.5m to 15.0m tall!
         float leanAngle = 8.0f + islandHash(p, 6) * 18.0f; // 8 to 26 deg lean outward
         float outwardYaw = glm::degrees(atan2f(px, pz - (-100.0f))) + (islandHash(p, 7) * 30.0f - 15.0f);
@@ -3159,6 +3403,73 @@ inline void drawIslandTerrainBackdrop(
         }
     }
 }
+// Conservative clip-space sphere test, shared by color and light-space passes.
+inline bool forestInstanceVisible(const ForestInstance& instance,const glm::mat4& clip) {
+    glm::vec4 center(instance.model[3]);
+    float radius=.5f*(glm::length(glm::vec3(instance.model[0]))+
+        glm::length(glm::vec3(instance.model[1]))+glm::length(glm::vec3(instance.model[2])));
+    for(int axis=0;axis<3;++axis)for(float sign:{-1.0f,1.0f}) {
+        glm::vec4 plane;
+        for(int col=0;col<4;++col)plane[col]=clip[col][3]+sign*clip[col][axis];
+        if(glm::dot(plane,center)<-radius*glm::length(glm::vec3(plane)))return false;
+    }
+    return true;
+}
+
+class IslandForestBatches {
+    struct Batch {
+        GLuint vao=0,buffer=0;GLsizei indices=0;
+        std::vector<ForestInstance> instances,visible;
+        void init(GLuint vertices,GLuint elements,GLsizei count) {
+            indices=count;glGenVertexArrays(1,&vao);glGenBuffers(1,&buffer);
+            glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,vertices);glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,elements);
+            for(int i=0;i<3;++i){glEnableVertexAttribArray(i);glVertexAttribPointer(i,i==2?2:3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(size_t)(i==0?0:i==1?3*sizeof(float):6*sizeof(float)));}
+            glBindBuffer(GL_ARRAY_BUFFER,buffer);
+            for(int i=0;i<4;++i){glEnableVertexAttribArray(5+i);glVertexAttribPointer(5+i,4,GL_FLOAT,GL_FALSE,sizeof(ForestInstance),(void*)(size_t)(i*sizeof(glm::vec4)));glVertexAttribDivisor(5+i,1);}
+            glEnableVertexAttribArray(9);glVertexAttribPointer(9,3,GL_FLOAT,GL_FALSE,sizeof(ForestInstance),(void*)offsetof(ForestInstance,color));glVertexAttribDivisor(9,1);
+            glEnableVertexAttribArray(10);glVertexAttribPointer(10,3,GL_FLOAT,GL_FALSE,sizeof(ForestInstance),(void*)offsetof(ForestInstance,material));glVertexAttribDivisor(10,1);glBindVertexArray(0);
+        }
+        void draw(const glm::mat4& clip) {
+            visible.clear();for(const auto& item:instances)if(forestInstanceVisible(item,clip))visible.push_back(item);
+            if(visible.empty())return;
+            glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,buffer);
+            glBufferData(GL_ARRAY_BUFFER,visible.size()*sizeof(ForestInstance),visible.data(),GL_STREAM_DRAW);
+            glDrawElementsInstanced(GL_TRIANGLES,indices,GL_UNSIGNED_INT,nullptr,(GLsizei)visible.size());glBindVertexArray(0);
+        }
+        void cleanup(){glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&buffer);vao=buffer=0;}
+    };
+    Batch staticCubes,staticSpheres,palmCubes,palmLeaves,palmSpheres;
+    float lastWind=1000;
+    std::vector<glm::vec3> staticRoots,palmRoots;
+public:
+    void init(Shader& shader,const IslandTerrainMesh& terrain,const CubeMesh& cube,const SphereMesh& sphere) {
+        staticCubes.init(cube.VBO,cube.EBO,cube.indexCount);staticSpheres.init(sphere.VBO,sphere.EBO,sphere.indexCount);
+        palmCubes.init(cube.VBO,cube.EBO,cube.indexCount);palmLeaves.init(cube.VBO,cube.EBO,cube.indexCount);palmSpheres.init(sphere.VBO,sphere.EBO,sphere.indexCount);
+        ForestCapture capture;g_forestCapture=&capture;
+        drawIslandTerrainBackdrop(shader,terrain,cube,sphere);g_forestCapture=nullptr;
+        staticCubes.instances=std::move(capture.cubes);staticSpheres.instances=std::move(capture.spheres);
+        staticRoots=std::move(capture.roots);
+    }
+    void update(Shader& shader,const CubeMesh& cube,const SphereMesh& sphere,float wind) {
+        if(wind==lastWind)return;lastWind=wind;
+        ForestCapture capture;g_forestCapture=&capture;
+        drawBackgroundPalmForest(shader,cube,sphere,wind);g_forestCapture=nullptr;
+        palmCubes.instances=std::move(capture.cubes);palmLeaves.instances=std::move(capture.leaves);palmSpheres.instances=std::move(capture.spheres);
+        palmRoots=std::move(capture.roots);
+    }
+    size_t instanceCount()const{return staticCubes.instances.size()+staticSpheres.instances.size()+palmCubes.instances.size()+palmLeaves.instances.size()+palmSpheres.instances.size();}
+    std::vector<glm::vec3> roots()const {auto result=staticRoots;result.insert(result.end(),palmRoots.begin(),palmRoots.end());return result;}
+    void draw(Shader& shader,const TextureManager& textures,bool textured) {
+        glm::mat4 view,proj;glGetUniformfv(shader.ID,shader.location("view"),glm::value_ptr(view));glGetUniformfv(shader.ID,shader.location("proj"),glm::value_ptr(proj));
+        glUniform1i(shader.location("instancedPass"),1);glUniform1i(shader.location("shadingMode"),0);glUniform1i(shader.location("useTexture"),0);
+        auto clip=proj*view;staticCubes.draw(clip);staticSpheres.draw(clip);palmCubes.draw(clip);palmSpheres.draw(clip);
+        if(textured){textures.bind(TEX_PALM);glUniform1i(shader.location("useTexture"),1);glUniform1f(shader.location("texScale"),1);}
+        palmLeaves.draw(clip);
+        if(textured)textures.unbind();glUniform1i(shader.location("useTexture"),0);glUniform1i(shader.location("instancedPass"),0);
+    }
+    void cleanup(){staticCubes.cleanup();staticSpheres.cleanup();palmCubes.cleanup();palmLeaves.cleanup();palmSpheres.cleanup();}
+};
+
 // OBJECT 8E: ROBOT-RIDDEN BEACH QUAD
 // Four knobby driven tyres, front steering, suspension, tubular racks,
 // four auxiliary lamps, handlebars, mirrors and a seated robot rider.
@@ -3324,7 +3635,8 @@ inline void drawBeach4WD(
 // and photovoltaic canopy, placed off the coastal driving lane.
 // ============================================================================
 inline void drawATVChargingStation(Shader& shader,const CubeMesh& cube,
-    const FrustumMesh& cylinder,const glm::mat4& base)
+    const FrustumMesh& cylinder,const glm::mat4& base,bool connected=false,float batteryPercent=60,
+    glm::vec3 vehiclePort=glm::vec3(0))
 {
     const glm::vec3 steel(.16f,.20f,.21f),white(.77f,.81f,.79f),yellow(.89f,.64f,.12f);
     auto box=[&](glm::vec3 p,glm::vec3 size,glm::vec3 color,int glow=0) {
@@ -3346,18 +3658,21 @@ inline void drawATVChargingStation(Shader& shader,const CubeMesh& cube,
     box(glm::vec3(1.23f,.83f,.65f),glm::vec3(.53f,1.65f,.46f),white);
     box(glm::vec3(1.23f,.20f,.65f),glm::vec3(.60f,.40f,.52f),steel);
     box(glm::vec3(.954f,1.22f,.65f),glm::vec3(.025f,.39f,.32f),steel);
-    box(glm::vec3(.937f,1.24f,.65f),glm::vec3(.012f,.25f,.24f),glm::vec3(.04f,.33f,.35f),1);
-    for(int i=0;i<4;++i)box(glm::vec3(.928f,1.20f,.56f+i*.058f),glm::vec3(.014f,.09f,.034f),glm::vec3(.18f,.85f,.54f),1);
+    box(glm::vec3(.937f,1.24f,.65f),glm::vec3(.012f,.25f,.24f),connected?glm::vec3(.04f,.5f,.16f):glm::vec3(.04f,.33f,.35f),1);
+    for(int i=0;i<4;++i)box(glm::vec3(.928f,1.20f,.56f+i*.058f),glm::vec3(.014f,.09f,.034f),
+        connected && batteryPercent<(i+1)*25?glm::vec3(.06f,.13f,.09f):glm::vec3(.18f,.85f,.54f),1);
     box(glm::vec3(.95f,.95f,.65f),glm::vec3(.025f,.035f,.20f),glm::vec3(.15f,.9f,.55f),1);
     // Hung charging cable, ending in a holstered connector beside the display.
     glm::vec3 previous(.96f,.82f,.79f);
+    glm::vec3 socket(glm::inverse(base)*glm::vec4(vehiclePort,1));
     for(int i=1;i<=20;++i)
     {
         float t=i/20.0f;
-        glm::vec3 next(.91f-.12f*sinf(t*3.14159265f),.82f-.60f*sinf(t*3.14159265f),.79f-.27f*t);
+        glm::vec3 next=connected?glm::mix(glm::vec3(.96f,.82f,.79f),socket,t)-glm::vec3(0,.22f*sinf(t*3.14159265f),0):
+            glm::vec3(.91f-.12f*sinf(t*3.14159265f),.82f-.60f*sinf(t*3.14159265f),.79f-.27f*t);
         tube(previous,next,.035f,glm::vec3(.035f));previous=next;
     }
-    box(glm::vec3(.91f,.85f,.52f),glm::vec3(.075f,.17f,.075f),steel);
+    box(connected?socket:glm::vec3(.91f,.85f,.52f),glm::vec3(.075f,.17f,.075f),steel);
     for(float z:{-.15f,1.48f})tube(glm::vec3(1.24f,.03f,z),glm::vec3(1.24f,.67f,z),.10f,yellow);
     // Canopy posts are only on the inland side, leaving the entry open.
     for(float z:{-1.9f,1.9f})
@@ -3382,6 +3697,39 @@ inline void drawATVChargingStation(Shader& shader,const CubeMesh& cube,
 // OBJECT 8F: COASTAL LIGHTHOUSE
 // Banded masonry tower, glazed lantern room, gallery, roof and glowing optic.
 // ============================================================================
+struct LighthouseLanternDimensions {
+    static constexpr float radius=1.525f,bottom=14.275f,top=16.575f,opticY=15.55f;
+    static constexpr float beamTipRadius=.0125f;
+};
+inline glm::mat4 lighthouseWindowTransform(const glm::mat4& base,int pane,float y)
+{
+    float angle=(pane+.5f)*6.283185307f/12,apothem=LighthouseLanternDimensions::radius*cosf(3.141592654f/12);
+    glm::mat4 m=glm::translate(base,{apothem*cosf(angle),y,apothem*sinf(angle)});
+    return glm::rotate(m,1.570796327f-angle,glm::vec3(0,1,0));
+}
+
+// Transparent effects must not leak depth/blend/cull or material flags into
+// the ocean, the next scene object or the interface.
+struct LighthouseTransparentState {
+    Shader& shader;GLboolean depth,blend,cull,mask;
+    GLint src,dst,srcAlpha,dstAlpha,oldPass=0,oldUnlit=0,oldTexture=0;float alpha=1;
+    explicit LighthouseTransparentState(Shader& s):shader(s){
+        depth=glIsEnabled(GL_DEPTH_TEST);blend=glIsEnabled(GL_BLEND);cull=glIsEnabled(GL_CULL_FACE);
+        glGetBooleanv(GL_DEPTH_WRITEMASK,&mask);glGetIntegerv(GL_BLEND_SRC_RGB,&src);glGetIntegerv(GL_BLEND_DST_RGB,&dst);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA,&srcAlpha);glGetIntegerv(GL_BLEND_DST_ALPHA,&dstAlpha);
+        glGetUniformfv(s.ID,s.location("objectAlpha"),&alpha);
+        glGetUniformiv(s.ID,s.location("beaconBeamPass"),&oldPass);glGetUniformiv(s.ID,s.location("unlit"),&oldUnlit);
+        glGetUniformiv(s.ID,s.location("useTexture"),&oldTexture);
+        glEnable(GL_DEPTH_TEST);glEnable(GL_BLEND);glDisable(GL_CULL_FACE);glDepthMask(GL_FALSE);
+        glUniform1i(s.location("useTexture"),0);
+    }
+    ~LighthouseTransparentState(){
+        glDepthMask(mask);if(!depth)glDisable(GL_DEPTH_TEST);if(!blend)glDisable(GL_BLEND);if(cull)glEnable(GL_CULL_FACE);
+        glBlendFuncSeparate(src,dst,srcAlpha,dstAlpha);
+        glUniform1f(shader.location("objectAlpha"),alpha);glUniform1i(shader.location("beaconBeamPass"),oldPass);
+        glUniform1i(shader.location("unlit"),oldUnlit);glUniform1i(shader.location("useTexture"),oldTexture);
+    }
+};
 inline void drawLighthouse(
     Shader& shader,
     const CubeMesh& cube,
@@ -3390,7 +3738,8 @@ inline void drawLighthouse(
     const FrustumMesh& cylinderMesh,
     const FrustumMesh& roofMesh,
     const glm::mat4& baseTransform,
-    float time)
+    float time,
+    float nightIntensity=0)
 {
     const glm::vec3 whiteStone(0.88f, 0.86f, 0.78f);
     const glm::vec3 redBand(0.72f, 0.07f, 0.055f);
@@ -3402,9 +3751,9 @@ inline void drawLighthouse(
     tower = glm::scale(tower, glm::vec3(4.6f, 14.0f, 4.6f));
     // Paint on the shaft itself, rather than intersecting straight cylinders
     // with a tapered wall (which produced jagged, flickering stripe edges).
-    glUniform1i(glGetUniformLocation(shader.ID, "lighthouseShaftPass"), 1);
+    glUniform1i(shader.location("lighthouseShaftPass"), 1);
     drawTransformedFrustum(shader, towerMesh, tower, whiteStone, 24.0f, 0.18f);
-    glUniform1i(glGetUniformLocation(shader.ID, "lighthouseShaftPass"), 0);
+    glUniform1i(shader.location("lighthouseShaftPass"), 0);
 
     // Human scale: 1.05 m wide x 2.25 m high entrance.
     glm::mat4 door = glm::translate(baseTransform, glm::vec3(0.0f, 1.13f, 2.24f));
@@ -3424,9 +3773,18 @@ inline void drawLighthouse(
     gallery = glm::scale(gallery, glm::vec3(5.4f, 0.24f, 5.4f));
     drawTransformedFrustum(shader, cylinderMesh, gallery, darkMetal, 42.0f, 0.35f);
 
-    glm::mat4 lantern = glm::translate(baseTransform, glm::vec3(0.0f, 15.45f, 0.0f));
-    lantern = glm::scale(lantern, glm::vec3(3.05f, 2.35f, 3.05f));
-    drawTransformedFrustum(shader, cylinderMesh, lantern, lanternGlass, 96.0f, 0.85f);
+    const float bottom=LighthouseLanternDimensions::bottom,top=LighthouseLanternDimensions::top;
+    const float radius=LighthouseLanternDimensions::radius;
+    float chord=2*radius*sinf(3.141592654f/12);
+    // Twelve window bays: no solid cylinder concealing the optic.
+    for(int i=0;i<12;++i){
+        float a=i*6.283185307f/12;
+        auto upright=glm::translate(baseTransform,glm::vec3(radius*cosf(a),(bottom+top)*.5f,radius*sinf(a)));
+        drawTransformedCube(shader,cube,glm::scale(upright,{.075f,top-bottom,.075f}),darkMetal,38,.35f);
+        for(float y:{bottom+.045f,top-.045f})
+            drawTransformedCube(shader,cube,glm::scale(lighthouseWindowTransform(baseTransform,i,y),
+                {chord+.035f,.09f,.075f}),darkMetal,38,.35f);
+    }
 
     // Gallery handrail: about 1.05 m tall, with twelve evenly spaced posts.
     for (int i = 0; i < 12; ++i)
@@ -3438,19 +3796,43 @@ inline void drawLighthouse(
         post = glm::scale(post, glm::vec3(0.075f, 1.05f, 0.075f));
         drawTransformedCube(shader, cube, post, darkMetal, 18.0f, 0.18f);
     }
-    glm::mat4 handrail = glm::translate(baseTransform, glm::vec3(0.0f, 15.23f, 0.0f));
-    handrail = glm::scale(handrail, glm::vec3(5.05f, 0.10f, 5.05f));
-    drawTransformedFrustum(shader, cylinderMesh, handrail, darkMetal, 28.0f, 0.28f);
+    for(int i=0;i<12;++i){
+        float a=(i+.5f)*6.283185307f/12,r=2.45f*cosf(3.141592654f/12);
+        auto rail=glm::translate(baseTransform,glm::vec3(r*cosf(a),15.23f,r*sinf(a)));
+        rail=glm::rotate(rail,1.570796327f-a,glm::vec3(0,1,0));
+        drawTransformedCube(shader,cube,glm::scale(rail,{2*2.45f*sinf(3.141592654f/12)+.04f,.10f,.085f}),darkMetal,28,.28f);
+    }
 
     glm::mat4 roof = glm::translate(baseTransform, glm::vec3(0.0f, 17.30f, 0.0f));
     roof = glm::scale(roof, glm::vec3(3.65f, 1.45f, 3.65f));
     drawTransformedFrustum(shader, roofMesh, roof, redBand, 38.0f, 0.35f);
 
     // The lamp itself is steady; the rotating focused optic creates the flash.
-    float pulse = 1.0f;
-    glm::mat4 optic = glm::translate(baseTransform, glm::vec3(0.0f, 15.55f, 0.0f));
-    optic = glm::scale(optic, glm::vec3(0.62f * pulse));
-    drawTransformedSphere(shader, sphere, optic, glm::vec3(1.0f, 0.82f, 0.24f), 1.0f, 0.0f, 1);
+    auto pedestal=glm::translate(baseTransform,glm::vec3(0,14.89f,0));
+    drawTransformedCube(shader,cube,glm::scale(pedestal,{.28f,1.05f,.28f}),darkMetal,28,.2f);
+    glm::mat4 optic=glm::translate(baseTransform,glm::vec3(0,LighthouseLanternDimensions::opticY,0));
+    optic=glm::scale(optic,glm::vec3(.80f));
+    glm::vec3 lamp=glm::mix(glm::vec3(.72f,.62f,.38f),glm::vec3(1,.91f,.58f),glm::clamp(nightIntensity,0.f,1.f));
+    drawTransformedSphere(shader,sphere,optic,lamp,1,0,1);
+}
+
+inline void drawLighthouseGlass(Shader& shader,const CubeMesh& cube,const glm::mat4& base,
+    glm::vec3 cameraPosition,float nightIntensity=0)
+{
+    LighthouseTransparentState saved(shader);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glUniform1i(shader.location("beaconBeamPass"),0);
+    std::vector<std::pair<float,int>> sorted;
+    const float y=(LighthouseLanternDimensions::bottom+LighthouseLanternDimensions::top)*.5f;
+    for(int i=0;i<12;++i){auto pane=lighthouseWindowTransform(base,i,y);
+        auto d=glm::vec3(pane[3])-cameraPosition;sorted.emplace_back(glm::dot(d,d),i);}
+    std::sort(sorted.begin(),sorted.end(),[](const auto& a,const auto& b){return a.first>b.first;});
+    float width=2*LighthouseLanternDimensions::radius*sinf(3.141592654f/12)-.075f;
+    glUniform1f(shader.location("objectAlpha"),.075f);
+    for(const auto& entry:sorted){
+        auto pane=glm::scale(lighthouseWindowTransform(base,entry.second,y),
+            glm::vec3(width,LighthouseLanternDimensions::top-LighthouseLanternDimensions::bottom-.18f,.018f));
+        drawTransformedCube(shader,cube,pane,glm::mix(glm::vec3(.44f,.67f,.74f),glm::vec3(.70f,.76f,.78f),nightIntensity),96,.65f);
+    }
 }
 
 // Rotating lighthouse beacon. The cone is additive and does not write depth,
@@ -3471,7 +3853,7 @@ inline void drawLighthouseBeacon(
     // One revolution in roughly 6.5 seconds, producing a recognizable flash
     // characteristic whenever the narrow beam passes an observer.
     float sweep = headingDegrees>=0?headingDegrees:time * 55.0f;
-    glm::mat4 beam = glm::translate(lighthouseTransform, glm::vec3(0.0f, 15.65f, 0.0f));
+    glm::mat4 beam = glm::translate(lighthouseTransform, glm::vec3(0.0f, LighthouseLanternDimensions::opticY, 0.0f));
     beam = glm::rotate(beam, glm::radians(sweep), glm::vec3(0.0f, 1.0f, 0.0f));
     // Tilt around the optic, before translating to the cone centre, so aiming
     // never moves the beam's origin away from the lantern.
@@ -3479,25 +3861,22 @@ inline void drawLighthouseBeacon(
     beam = glm::translate(beam, glm::vec3(beamLength * 0.5f, 0.0f, 0.0f));
     beam = glm::rotate(beam, glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 
+    LighthouseTransparentState saved(shader);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     glDepthMask(GL_FALSE);
-    glUniform1i(glGetUniformLocation(shader.ID, "beaconBeamPass"), 1);
+    glUniform1i(shader.location("beaconBeamPass"), 1);
 
     // The optic has small vertical divergence but a somewhat wider horizontal
     // fan. This avoids the previous pair of thick, parallel luminous rails.
-    glUniform1f(glGetUniformLocation(shader.ID, "objectAlpha"), 0.030f * nightIntensity);
-    glm::mat4 halo = glm::scale(beam, glm::vec3(3.0f, beamLength, 22.0f));
+    glUniform1f(shader.location("objectAlpha"), 0.045f * nightIntensity);
+    glm::mat4 halo = glm::scale(beam, glm::vec3(12.0f, beamLength, 34.0f));
     drawTransformedFrustum(shader, coneMesh, halo, glm::vec3(0.72f, 0.84f, 1.0f), 1.0f, 0.0f, 1);
 
-    glUniform1f(glGetUniformLocation(shader.ID, "objectAlpha"), 0.10f * nightIntensity);
-    glm::mat4 core = glm::scale(beam, glm::vec3(1.15f, beamLength, 8.0f));
+    glUniform1f(shader.location("objectAlpha"), 0.16f * nightIntensity);
+    glm::mat4 core = glm::scale(beam, glm::vec3(6.0f, beamLength, 18.0f));
     drawTransformedFrustum(shader, coneMesh, core, glm::vec3(1.0f, 0.96f, 0.74f), 1.0f, 0.0f, 1);
 
-    glDepthMask(GL_TRUE);
-    glDisable(GL_BLEND);
-    glUniform1f(glGetUniformLocation(shader.ID, "objectAlpha"), 1.0f);
-    glUniform1i(glGetUniformLocation(shader.ID, "beaconBeamPass"), 0);
 }
 
 // Deterministic staggered falling-and-bouncing coconuts. Each coconut spends
@@ -3556,7 +3935,7 @@ inline void drawRocks(
     const SphereMesh& sphere)
 {
     // FLAT SHADING for faceted coastal rock formations
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 2);
+    glUniform1i(shader.location("shadingMode"), 2);
 
     glm::vec3 rockGray1  = glm::vec3(0.40f, 0.42f, 0.44f);
     glm::vec3 rockGray2  = glm::vec3(0.50f, 0.48f, 0.42f);
@@ -3657,7 +4036,7 @@ inline void drawRocks(
     }
 
     // Restore to default Phong
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 0);
+    glUniform1i(shader.location("shadingMode"), 0);
 }
 
 // Organic standalone rock cluster positioned relative to baseTransform (ideal for showcase)
@@ -3668,7 +4047,7 @@ inline void drawRockCluster(
     const glm::mat4& baseTransform)
 {
     // FLAT SHADING for faceted rock cluster
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 2);
+    glUniform1i(shader.location("shadingMode"), 2);
 
     glm::vec3 rockGray1  = glm::vec3(0.40f, 0.42f, 0.44f);
     glm::vec3 rockGray2  = glm::vec3(0.50f, 0.48f, 0.42f);
@@ -3711,7 +4090,7 @@ inline void drawRockCluster(
     drawTransformedSphere(shader, sphere, bm, mossGreen, 8.0f, 0.05f, 0);
 
     // Restore to default Phong
-    glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 0);
+    glUniform1i(shader.location("shadingMode"), 0);
 }
 
 
@@ -3932,6 +4311,968 @@ inline void drawLifeguardTower(
     }
 }
 
+// ============================================================================
+// OBJECT 11: 3D RAISED TROPICAL STILT HOUSE (ACCURATE ARCHITECTURAL GEOMETRY)
+// Modeled faithfully after traditional Southeast Asian / Pacific raised stilt architecture
+// (matching the user reference photo):
+// 1. Foundation & Stilts: 10 heavy cylindrical wooden columns on square concrete
+//    footings adaptive to terrain elevation, with clean diagonal cross-bracing.
+// 2. Main Raised Deck: Longitudinal girder beams, 9 transverse floor joists,
+//    perimeter edge fascia, and 24 individual wooden deck floor planks.
+// 3. Walls & Rooms: Woven bamboo wall screens, rear and side window openings with
+//    awning shutters propped open with wooden sticks, open center veranda doorway.
+// 4. Open-Air Front Veranda: 4 heavy structural veranda posts, top lintel beam,
+//    perimeter balustrades (top/bottom rails + vertical balusters), deck armchair,
+//    side table, terracotta water jug, and draped sarong towel.
+// 5. Signature Traditional Pitched Thatch Roof:
+//    - Both front and back slopes slope DOWNWARDS from the ridge beam to eaves.
+//    - Deep 0.90m overhangs protecting walls and veranda from tropical weather.
+//    - Seamless triangular gable walls using PrismMesh closing the left and right ends.
+//    - Heavy cylindrical ridge log and woven thatch ridge crest.
+//    - 18 exposed under-eave structural rafters and tiered thatch eaves fringes.
+// 6. Staircases:
+//    - Left Main Entrance Staircase: 10 solid wooden step treads with risers, dual
+//      heavy angled stringers (+36.9 deg incline), handrail posts, and smooth continuous
+//      top rails cleanly flush-landing on the veranda deck edge.
+//    - Right Secondary Staircase: 5 steps with side stringer and handrail.
+// 7. Lush Tropical Environment:
+//    - Raised timber planter bed with rich garden soil and 5 multi-frond tropical
+//      broadleaf plant clusters and vibrant flowering shoots.
+//    - Towering organic shade tree behind/beside the left staircase, leaning over the roof.
+//    - Peaceful sleeping dog curled up on a woven straw mat near the stairs base.
+// ============================================================================
+// Returns local-space bottom/top for a footing enclosing the sampled terrain.
+// Its underside penetrates the lowest sample; its top clears the highest one.
+inline glm::vec2 terrainSupportRange(const glm::mat4& base,float x,float z,float halfX,float halfZ,float thickness=.20f) {
+    float low=1e30f,high=-1e30f;
+    for(int i=0;i<=4;++i)for(int j=0;j<=4;++j){
+        glm::vec4 p=base*glm::vec4(x-halfX+2*halfX*i/4,0,z-halfZ+2*halfZ*j/4,1);
+        float y=getCoastalTerrainElevation(p.x,p.z)-base[3].y;low=glm::min(low,y);high=glm::max(high,y);}
+    return {low-.04f,high+thickness-.04f};
+}
+
+inline void drawTropicalStiltHouse(
+    Shader& shader,
+    const CubeMesh& cube,
+    const SphereMesh& sphere,
+    const FrustumMesh& cylinder,
+    const FrustumMesh& cone,
+    const PrismMesh& prism,
+    const glm::mat4& baseTransform)
+{
+    // Authentic Material Color Palette
+    const glm::vec3 woodDark     = glm::vec3(0.32f, 0.22f, 0.13f); // Weathered structural timber
+    const glm::vec3 woodMedium   = glm::vec3(0.42f, 0.29f, 0.17f); // Columns, beams, floor planks
+    const glm::vec3 woodLight    = glm::vec3(0.52f, 0.38f, 0.24f); // Rails, stairs, furniture
+    const glm::vec3 bambooWeave  = glm::vec3(0.76f, 0.62f, 0.38f); // Woven bamboo wall screens
+    const glm::vec3 bambooTrim   = glm::vec3(0.64f, 0.50f, 0.28f); // Window frames and wall battens
+    const glm::vec3 thatchRoof   = glm::vec3(0.52f, 0.42f, 0.26f); // Main dried thatch roof slopes
+    const glm::vec3 thatchFringe = glm::vec3(0.42f, 0.32f, 0.19f); // Thatch ridge cap & eave fringes
+    const glm::vec3 concreteCol  = glm::vec3(0.66f, 0.64f, 0.60f); // Foundation footings
+    const glm::vec3 soilCol      = glm::vec3(0.22f, 0.16f, 0.10f); // Rich dark garden soil
+    const glm::vec3 leafDark     = glm::vec3(0.14f, 0.38f, 0.12f); // Deep jungle green leaves
+    const glm::vec3 leafBright   = glm::vec3(0.24f, 0.54f, 0.16f); // Vibrant emerald leaf fronds
+    const glm::vec3 flowerRed    = glm::vec3(0.90f, 0.32f, 0.14f); // Tropical heliconia flower bracts
+    const glm::vec3 flowerGold   = glm::vec3(0.96f, 0.76f, 0.18f); // Golden flower tips
+    const glm::vec3 treeBark     = glm::vec3(0.35f, 0.24f, 0.15f); // Shade tree weathered trunk
+    const glm::vec3 treeFoliage  = glm::vec3(0.16f, 0.42f, 0.14f); // Shade tree dense foliage
+    const glm::vec3 dogFur       = glm::vec3(0.72f, 0.50f, 0.26f); // Sleeping dog golden-brown coat
+    const glm::vec3 dogDark      = glm::vec3(0.28f, 0.18f, 0.10f); // Dog nose / ears
+    const glm::vec3 matStraw     = glm::vec3(0.78f, 0.70f, 0.48f); // Woven straw pet mat
+    const glm::vec3 terracotta   = glm::vec3(0.78f, 0.42f, 0.22f); // Clay water jug
+    const glm::vec3 clothCream   = glm::vec3(0.88f, 0.85f, 0.76f); // Draped veranda towel
+    const glm::vec3 clothBorder  = glm::vec3(0.78f, 0.36f, 0.22f); // Towel accent stripe
+
+    // Core Architecture Dimensions
+    const float PILLAR_H = 1.80f; // Stilt height to girder bottom
+    const float FLOOR_W  = 8.00f; // Main deck width (X axis, -4.0 to +4.0)
+    const float FLOOR_D  = 5.20f; // Main deck depth (Z axis, -2.6 to +2.6)
+    const float DECK_Y   = 1.95f; // Finished floor deck surface height
+    const float WALL_H   = 2.20f; // Wall height
+    const float EAVE_Y   = DECK_Y + WALL_H; // 4.15m (Lower roof eave height)
+
+    // ------------------------------------------------------------------------
+    // 1. FOUNDATION STILTS & FOOTINGS (10 Heavy Columns in 2x5 Grid)
+    // ------------------------------------------------------------------------
+    const float stiltX[5] = { -3.40f, -1.70f, 0.00f, 1.70f, 3.40f };
+    const float stiltZ[2] = { -1.80f, 1.80f };
+
+    for (int ix = 0; ix < 5; ++ix)
+    {
+        for (int iz = 0; iz < 2; ++iz)
+        {
+            float sx = stiltX[ix];
+            float sz = stiltZ[iz];
+
+            // Sample terrain ground elevation under this individual stilt
+            glm::vec2 support=terrainSupportRange(baseTransform,sx,sz,.23f,.23f);
+
+            // Square concrete footing
+            glm::mat4 foot = glm::translate(baseTransform, glm::vec3(sx, (support.x+support.y)*.5f, sz));
+            foot = glm::scale(foot, glm::vec3(0.46f, support.y-support.x, 0.46f));
+            drawTransformedCube(shader, cube, foot, concreteCol, 16.0f, 0.10f);
+
+            // Cylindrical wooden stilt column
+            float columnBase = support.y;
+            float columnH = (DECK_Y - 0.15f) - columnBase;
+            if (columnH > 0.1f)
+            {
+                glm::mat4 col = glm::translate(baseTransform, glm::vec3(sx, columnBase + columnH * 0.5f, sz));
+                col = glm::scale(col, glm::vec3(0.24f, columnH, 0.24f));
+                drawTransformedFrustum(shader, cylinder, col, woodDark, 20.0f, 0.15f);
+            }
+        }
+    }
+
+    // Clean structural cross-bracing between stilt bays along X (contained under floor)
+    for (int ix = 0; ix < 4; ++ix)
+    {
+        float x1 = stiltX[ix];
+        float x2 = stiltX[ix + 1];
+        float midX = (x1 + x2) * 0.5f;
+        float spanX = x2 - x1;
+        float braceH = PILLAR_H * 0.70f;
+        float braceL = glm::length(glm::vec2(spanX, braceH));
+        float diagAngle = glm::degrees(atan2f(braceH, spanX));
+
+        for (int iz = 0; iz < 2; ++iz)
+        {
+            float sz = stiltZ[iz];
+            // Diagonal 1
+            glm::mat4 br1 = glm::translate(baseTransform, glm::vec3(midX, PILLAR_H * 0.50f, sz));
+            br1 = glm::rotate(br1, glm::radians(diagAngle), glm::vec3(0.0f, 0.0f, 1.0f));
+            br1 = glm::scale(br1, glm::vec3(braceL, 0.07f, 0.07f));
+            drawTransformedCube(shader, cube, br1, woodDark, 20.0f, 0.15f);
+
+            // Diagonal 2
+            glm::mat4 br2 = glm::translate(baseTransform, glm::vec3(midX, PILLAR_H * 0.50f, sz));
+            br2 = glm::rotate(br2, glm::radians(-diagAngle), glm::vec3(0.0f, 0.0f, 1.0f));
+            br2 = glm::scale(br2, glm::vec3(braceL, 0.07f, 0.07f));
+            drawTransformedCube(shader, cube, br2, woodDark, 20.0f, 0.15f);
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 2. UNDERFLOOR STRUCTURAL BEAMS & JOISTS
+    // ------------------------------------------------------------------------
+    // Longitudinal girder beams
+    for (int iz = 0; iz < 2; ++iz)
+    {
+        glm::mat4 g = glm::translate(baseTransform, glm::vec3(0.0f, DECK_Y - 0.18f, stiltZ[iz]));
+        g = glm::scale(g, glm::vec3(FLOOR_W + 0.20f, 0.20f, 0.22f));
+        drawTransformedCube(shader, cube, g, woodDark, 24.0f, 0.18f);
+    }
+    // 9 Transverse floor joists
+    for (int i = 0; i < 9; ++i)
+    {
+        float jx = -3.80f + (float)i * (7.60f / 8.0f);
+        glm::mat4 j = glm::translate(baseTransform, glm::vec3(jx, DECK_Y - 0.08f, 0.0f));
+        j = glm::scale(j, glm::vec3(0.12f, 0.14f, FLOOR_D + 0.10f));
+        drawTransformedCube(shader, cube, j, woodDark, 24.0f, 0.18f);
+    }
+    // Perimeter edge fascia trim boards
+    for (float fz : { -FLOOR_D * 0.5f, FLOOR_D * 0.5f })
+    {
+        glm::mat4 fascia = glm::translate(baseTransform, glm::vec3(0.0f, DECK_Y - 0.02f, fz));
+        fascia = glm::scale(fascia, glm::vec3(FLOOR_W + 0.08f, 0.16f, 0.06f));
+        drawTransformedCube(shader, cube, fascia, woodMedium, 24.0f, 0.18f);
+    }
+    for (float fx : { -FLOOR_W * 0.5f, FLOOR_W * 0.5f })
+    {
+        glm::mat4 fascia = glm::translate(baseTransform, glm::vec3(fx, DECK_Y - 0.02f, 0.0f));
+        fascia = glm::scale(fascia, glm::vec3(0.06f, 0.16f, FLOOR_D + 0.08f));
+        drawTransformedCube(shader, cube, fascia, woodMedium, 24.0f, 0.18f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3. MAIN RAISED DECK PLATFORM & INDIVIDUAL WOODEN PLANKS
+    // ------------------------------------------------------------------------
+    glm::mat4 subDeck = glm::translate(baseTransform, glm::vec3(0.0f, DECK_Y - 0.02f, 0.0f));
+    subDeck = glm::scale(subDeck, glm::vec3(FLOOR_W - 0.04f, 0.05f, FLOOR_D - 0.04f));
+    drawTransformedCube(shader, cube, subDeck, woodDark, 24.0f, 0.15f);
+
+    // 24 individual longitudinal floor planks with subtle alternating tones
+    const int numPlanks = 24;
+    const float plankSpacing = FLOOR_D / (float)numPlanks;
+    for (int p = 0; p < numPlanks; ++p)
+    {
+        float pz = -FLOOR_D * 0.5f + (float)p * plankSpacing + plankSpacing * 0.5f;
+        glm::mat4 plank = glm::translate(baseTransform, glm::vec3(0.0f, DECK_Y + 0.015f, pz));
+        plank = glm::scale(plank, glm::vec3(FLOOR_W - 0.06f, 0.03f, plankSpacing * 0.90f));
+        glm::vec3 pCol = (p % 2 == 0) ? woodMedium : woodLight;
+        drawTransformedCube(shader, cube, plank, pCol, 28.0f, 0.20f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 4. ENCLOSED ROOM WALLS (Rear section, z = -2.60 to +0.20)
+    // ------------------------------------------------------------------------
+    const float wallMidY  = DECK_Y + WALL_H * 0.5f; // 3.05m
+    const float roomZMin  = -2.60f;
+    const float roomZMax  =  0.20f;
+    const float roomZMid  = (roomZMin + roomZMax) * 0.5f;
+    const float roomDepth = roomZMax - roomZMin; // 2.80m
+    const float roomWidth = FLOOR_W - 0.20f;     // 7.80m
+
+    // Structural corner posts of room
+    for (float cx : { -roomWidth * 0.5f, roomWidth * 0.5f })
+    {
+        for (float cz : { roomZMin, roomZMax })
+        {
+            glm::mat4 cp = glm::translate(baseTransform, glm::vec3(cx, wallMidY, cz));
+            cp = glm::scale(cp, glm::vec3(0.18f, WALL_H, 0.18f));
+            drawTransformedCube(shader, cube, cp, woodDark, 24.0f, 0.18f);
+        }
+    }
+
+    // Back Wall (z = roomZMin)
+    glm::mat4 backWall = glm::translate(baseTransform, glm::vec3(0.0f, wallMidY, roomZMin));
+    backWall = glm::scale(backWall, glm::vec3(roomWidth, WALL_H, 0.08f));
+    drawTransformedCube(shader, cube, backWall, bambooWeave, 16.0f, 0.10f);
+
+    // Horizontal reinforcement battens across back wall
+    for (float yb : { DECK_Y + 0.60f, DECK_Y + 1.20f, DECK_Y + 1.80f })
+    {
+        glm::mat4 bat = glm::translate(baseTransform, glm::vec3(0.0f, yb, roomZMin - 0.05f));
+        bat = glm::scale(bat, glm::vec3(roomWidth, 0.06f, 0.04f));
+        drawTransformedCube(shader, cube, bat, bambooTrim, 20.0f, 0.12f);
+    }
+
+    // 2 Back windows with awning shutters propped open with wooden sticks
+    for (float wx : { -2.00f, 2.00f })
+    {
+        // Dark interior void
+        glm::mat4 wVoid = glm::translate(baseTransform, glm::vec3(wx, DECK_Y + 1.20f, roomZMin));
+        wVoid = glm::scale(wVoid, glm::vec3(0.95f, 0.75f, 0.12f));
+        drawTransformedCube(shader, cube, wVoid, glm::vec3(0.10f, 0.08f, 0.05f), 4.0f, 0.02f);
+
+        // Window frame
+        glm::mat4 wFrame = glm::translate(baseTransform, glm::vec3(wx, DECK_Y + 1.20f, roomZMin - 0.02f));
+        wFrame = glm::scale(wFrame, glm::vec3(1.10f, 0.90f, 0.08f));
+        drawTransformedCube(shader, cube, wFrame, woodDark, 24.0f, 0.15f);
+
+        // Propped awning shutter
+        glm::mat4 shutter = glm::translate(baseTransform, glm::vec3(wx, DECK_Y + 1.62f, roomZMin - 0.28f));
+        shutter = glm::rotate(shutter, glm::radians(38.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        shutter = glm::scale(shutter, glm::vec3(0.96f, 0.58f, 0.035f));
+        drawTransformedCube(shader, cube, shutter, bambooWeave, 16.0f, 0.10f);
+
+        // Wooden prop stick
+        glm::mat4 stick = glm::translate(baseTransform, glm::vec3(wx + 0.35f, DECK_Y + 1.15f, roomZMin - 0.20f));
+        stick = glm::rotate(stick, glm::radians(45.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        stick = glm::scale(stick, glm::vec3(0.03f, 0.65f, 0.03f));
+        drawTransformedCube(shader, cube, stick, woodLight, 20.0f, 0.15f);
+    }
+
+    // Left Side Wall (x = -roomWidth * 0.5f)
+    glm::mat4 leftWall = glm::translate(baseTransform, glm::vec3(-roomWidth * 0.5f, wallMidY, roomZMid));
+    leftWall = glm::scale(leftWall, glm::vec3(0.08f, WALL_H, roomDepth));
+    drawTransformedCube(shader, cube, leftWall, bambooWeave, 16.0f, 0.10f);
+
+    // Left window with propped shutter
+    {
+        glm::mat4 wFrame = glm::translate(baseTransform, glm::vec3(-roomWidth * 0.5f - 0.02f, DECK_Y + 1.20f, roomZMid));
+        wFrame = glm::scale(wFrame, glm::vec3(0.08f, 0.85f, 0.95f));
+        drawTransformedCube(shader, cube, wFrame, woodDark, 24.0f, 0.15f);
+
+        glm::mat4 shutter = glm::translate(baseTransform, glm::vec3(-roomWidth * 0.5f - 0.25f, DECK_Y + 1.60f, roomZMid));
+        shutter = glm::rotate(shutter, glm::radians(-35.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        shutter = glm::scale(shutter, glm::vec3(0.035f, 0.55f, 0.92f));
+        drawTransformedCube(shader, cube, shutter, bambooWeave, 16.0f, 0.10f);
+    }
+
+    // Right Side Wall (x = roomWidth * 0.5f) with secondary exit doorway & full structural framing
+    // Back segment: from z = roomZMin (-2.60m) to door back jamb (-1.65m) -> depth 0.95m, center -2.125m
+    glm::mat4 rightWallB = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f, wallMidY, -2.125f));
+    rightWallB = glm::scale(rightWallB, glm::vec3(0.08f, WALL_H, 0.95f));
+    drawTransformedCube(shader, cube, rightWallB, bambooWeave, 16.0f, 0.10f);
+
+    // Window on right back wall with propped awning shutter
+    {
+        glm::mat4 rwVoid = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f, DECK_Y + 1.20f, -2.125f));
+        rwVoid = glm::scale(rwVoid, glm::vec3(0.10f, 0.70f, 0.65f));
+        drawTransformedCube(shader, cube, rwVoid, glm::vec3(0.10f, 0.08f, 0.05f), 4.0f, 0.02f);
+
+        glm::mat4 rwFrame = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f + 0.02f, DECK_Y + 1.20f, -2.125f));
+        rwFrame = glm::scale(rwFrame, glm::vec3(0.08f, 0.82f, 0.75f));
+        drawTransformedCube(shader, cube, rwFrame, woodDark, 24.0f, 0.15f);
+
+        glm::mat4 rwShutter = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f + 0.22f, DECK_Y + 1.55f, -2.125f));
+        rwShutter = glm::rotate(rwShutter, glm::radians(35.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        rwShutter = glm::scale(rwShutter, glm::vec3(0.035f, 0.52f, 0.72f));
+        drawTransformedCube(shader, cube, rwShutter, bambooWeave, 16.0f, 0.10f);
+
+        glm::mat4 rwStick = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f + 0.16f, DECK_Y + 1.15f, -2.125f));
+        rwStick = glm::rotate(rwStick, glm::radians(-40.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        rwStick = glm::scale(rwStick, glm::vec3(0.03f, 0.55f, 0.03f));
+        drawTransformedCube(shader, cube, rwStick, woodLight, 20.0f, 0.15f);
+    }
+
+    // Front segment: from door front jamb (-0.75m) to roomZMax (+0.20m) -> depth 0.95m, center -0.275m
+    glm::mat4 rightWallF = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f, wallMidY, -0.275f));
+    rightWallF = glm::scale(rightWallF, glm::vec3(0.08f, WALL_H, 0.95f));
+    drawTransformedCube(shader, cube, rightWallF, bambooWeave, 16.0f, 0.10f);
+
+    // Structural Door Jambs (framing the 0.90m doorway opening at z = roomZMid = -1.20m)
+    for (float jz : { roomZMid - 0.45f, roomZMid + 0.45f })
+    {
+        glm::mat4 dJamb = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f, DECK_Y + 1.00f, jz));
+        dJamb = glm::scale(dJamb, glm::vec3(0.12f, 2.00f, 0.08f));
+        drawTransformedCube(shader, cube, dJamb, woodDark, 24.0f, 0.18f);
+    }
+
+    // Door Header Lintel Beam (top of door opening at y = DECK_Y + 2.00m)
+    glm::mat4 rightLintel = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f, DECK_Y + 2.00f, roomZMid));
+    rightLintel = glm::scale(rightLintel, glm::vec3(0.14f, 0.12f, 0.98f));
+    drawTransformedCube(shader, cube, rightLintel, woodDark, 24.0f, 0.18f);
+
+    // Wall panel above door header (sealing gap up to roof eave)
+    glm::mat4 rightWallTop = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f, DECK_Y + 2.12f, roomZMid));
+    rightWallTop = glm::scale(rightWallTop, glm::vec3(0.08f, 0.12f, 0.90f));
+    drawTransformedCube(shader, cube, rightWallTop, bambooWeave, 16.0f, 0.10f);
+
+    // Threshold sill board at floor level
+    glm::mat4 rightSill = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f + 0.03f, DECK_Y + 0.015f, roomZMid));
+    rightSill = glm::scale(rightSill, glm::vec3(0.14f, 0.04f, 0.96f));
+    drawTransformedCube(shader, cube, rightSill, woodMedium, 22.0f, 0.16f);
+
+    // Front Dividing Wall (z = roomZMax)
+    float sideWallW = (roomWidth - 1.40f) * 0.5f;
+    glm::mat4 fWallL = glm::translate(baseTransform, glm::vec3(-roomWidth * 0.5f + sideWallW * 0.5f, wallMidY, roomZMax));
+    fWallL = glm::scale(fWallL, glm::vec3(sideWallW, WALL_H, 0.08f));
+    drawTransformedCube(shader, cube, fWallL, bambooWeave, 16.0f, 0.10f);
+
+    glm::mat4 fWallR = glm::translate(baseTransform, glm::vec3(roomWidth * 0.5f - sideWallW * 0.5f, wallMidY, roomZMax));
+    fWallR = glm::scale(fWallR, glm::vec3(sideWallW, WALL_H, 0.08f));
+    drawTransformedCube(shader, cube, fWallR, bambooWeave, 16.0f, 0.10f);
+
+    // Center doorway posts
+    for (float dx : { -0.70f, 0.70f })
+    {
+        glm::mat4 dPost = glm::translate(baseTransform, glm::vec3(dx, wallMidY, roomZMax));
+        dPost = glm::scale(dPost, glm::vec3(0.12f, WALL_H, 0.12f));
+        drawTransformedCube(shader, cube, dPost, woodDark, 24.0f, 0.18f);
+    }
+    glm::mat4 dLintel = glm::translate(baseTransform, glm::vec3(0.0f, DECK_Y + 2.05f, roomZMax));
+    dLintel = glm::scale(dLintel, glm::vec3(1.50f, 0.15f, 0.14f));
+    drawTransformedCube(shader, cube, dLintel, woodDark, 24.0f, 0.18f);
+
+    // ------------------------------------------------------------------------
+    // 5. OPEN-AIR FRONT VERANDA / PORCH (z = +0.20 to +2.60)
+    // ------------------------------------------------------------------------
+    // 4 Heavy cylindrical veranda posts supporting roof eave beam along z = +2.55m
+    const float verandaPostX[4] = { -3.80f, -1.30f, 1.30f, 3.80f };
+    for (int i = 0; i < 4; ++i)
+    {
+        glm::mat4 vp = glm::translate(baseTransform, glm::vec3(verandaPostX[i], wallMidY, 2.55f));
+        vp = glm::scale(vp, glm::vec3(0.20f, WALL_H, 0.20f));
+        drawTransformedFrustum(shader, cylinder, vp, woodDark, 24.0f, 0.18f);
+
+        // Angled knee braces
+        if (i > 0 && i < 3)
+        {
+            glm::mat4 kb1 = glm::translate(baseTransform, glm::vec3(verandaPostX[i] + 0.22f, EAVE_Y - 0.25f, 2.55f));
+            kb1 = glm::rotate(kb1, glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+            kb1 = glm::scale(kb1, glm::vec3(0.07f, 0.45f, 0.07f));
+            drawTransformedCube(shader, cube, kb1, woodDark, 24.0f, 0.18f);
+
+            glm::mat4 kb2 = glm::translate(baseTransform, glm::vec3(verandaPostX[i] - 0.22f, EAVE_Y - 0.25f, 2.55f));
+            kb2 = glm::rotate(kb2, glm::radians(-45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+            kb2 = glm::scale(kb2, glm::vec3(0.07f, 0.45f, 0.07f));
+            drawTransformedCube(shader, cube, kb2, woodDark, 24.0f, 0.18f);
+        }
+    }
+
+    // Top eave lintel beam over veranda posts
+    glm::mat4 vBeam = glm::translate(baseTransform, glm::vec3(0.0f, EAVE_Y, 2.55f));
+    vBeam = glm::scale(vBeam, glm::vec3(FLOOR_W + 0.10f, 0.16f, 0.18f));
+    drawTransformedCube(shader, cube, vBeam, woodDark, 24.0f, 0.18f);
+
+    // Veranda Balustrades & Railings
+    const float railTopY  = DECK_Y + 0.88f;
+    const float railBotY  = DECK_Y + 0.18f;
+    const float railMidY  = (railTopY + railBotY) * 0.5f;
+    const float balHeight = railTopY - railBotY;
+
+    // Center-left front railing (leaving left side open for stairs at x = -3.85 to -2.60)
+    glm::mat4 rTopC = glm::translate(baseTransform, glm::vec3(0.0f, railTopY, 2.55f));
+    rTopC = glm::scale(rTopC, glm::vec3(2.45f, 0.07f, 0.09f));
+    drawTransformedCube(shader, cube, rTopC, woodLight, 24.0f, 0.18f);
+
+    glm::mat4 rBotC = glm::translate(baseTransform, glm::vec3(0.0f, railBotY, 2.55f));
+    rBotC = glm::scale(rBotC, glm::vec3(2.45f, 0.05f, 0.07f));
+    drawTransformedCube(shader, cube, rBotC, woodMedium, 24.0f, 0.18f);
+
+    for (int b = 0; b < 6; ++b)
+    {
+        float bx = -1.05f + (float)b * (2.10f / 5.0f);
+        glm::mat4 bal = glm::translate(baseTransform, glm::vec3(bx, railMidY, 2.55f));
+        bal = glm::scale(bal, glm::vec3(0.05f, balHeight, 0.05f));
+        drawTransformedCube(shader, cube, bal, woodMedium, 20.0f, 0.15f);
+    }
+
+    // Right front railing
+    glm::mat4 rTopR = glm::translate(baseTransform, glm::vec3(2.55f, railTopY, 2.55f));
+    rTopR = glm::scale(rTopR, glm::vec3(2.35f, 0.07f, 0.09f));
+    drawTransformedCube(shader, cube, rTopR, woodLight, 24.0f, 0.18f);
+
+    glm::mat4 rBotR = glm::translate(baseTransform, glm::vec3(2.55f, railBotY, 2.55f));
+    rBotR = glm::scale(rBotR, glm::vec3(2.35f, 0.05f, 0.07f));
+    drawTransformedCube(shader, cube, rBotR, woodMedium, 24.0f, 0.18f);
+
+    for (int b = 0; b < 6; ++b)
+    {
+        float bx = 1.50f + (float)b * (2.10f / 5.0f);
+        glm::mat4 bal = glm::translate(baseTransform, glm::vec3(bx, railMidY, 2.55f));
+        bal = glm::scale(bal, glm::vec3(0.05f, balHeight, 0.05f));
+        drawTransformedCube(shader, cube, bal, woodMedium, 20.0f, 0.15f);
+    }
+
+    // Right side veranda railing
+    glm::mat4 rTopSideR = glm::translate(baseTransform, glm::vec3(3.80f, railTopY, 1.40f));
+    rTopSideR = glm::scale(rTopSideR, glm::vec3(0.09f, 0.07f, 2.20f));
+    drawTransformedCube(shader, cube, rTopSideR, woodLight, 24.0f, 0.18f);
+
+    glm::mat4 rBotSideR = glm::translate(baseTransform, glm::vec3(3.80f, railBotY, 1.40f));
+    rBotSideR = glm::scale(rBotSideR, glm::vec3(0.07f, 0.05f, 2.20f));
+    drawTransformedCube(shader, cube, rBotSideR, woodMedium, 24.0f, 0.18f);
+
+    for (int b = 0; b < 6; ++b)
+    {
+        float bz = 0.45f + (float)b * (1.90f / 5.0f);
+        glm::mat4 bal = glm::translate(baseTransform, glm::vec3(3.80f, railMidY, bz));
+        bal = glm::scale(bal, glm::vec3(0.05f, balHeight, 0.05f));
+        drawTransformedCube(shader, cube, bal, woodMedium, 20.0f, 0.15f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 6. SIGNATURE TRADITIONAL PITCHED THATCH ROOF (ACCURATE WATER-TIGHT SLOPES)
+    // ------------------------------------------------------------------------
+    const float OVERHANG_Z   = 0.90f; // Eaves overhang beyond front/back walls
+    const float OVERHANG_X   = 0.80f; // Overhang beyond left/right gable walls
+    const float ROOF_W       = FLOOR_W + 2.0f * OVERHANG_X; // 9.60m
+    const float HALF_ROOF_D  = (FLOOR_D * 0.5f) + OVERHANG_Z; // 2.60 + 0.90 = 3.50m
+    const float TOTAL_ROOF_D = HALF_ROOF_D * 2.0f; // 7.00m
+    const float ROOF_PITCH   = 36.0f; // Degrees
+    const float ROOF_RISE    = HALF_ROOF_D * tanf(glm::radians(ROOF_PITCH)); // 2.54m
+    const float PEAK_Y       = EAVE_Y + ROOF_RISE; // 4.15 + 2.54 = 6.69m
+    const float SLOPE_L      = HALF_ROOF_D / cosf(glm::radians(ROOF_PITCH)); // 4.33m
+
+    const float roofMidY     = (PEAK_Y + EAVE_Y) * 0.5f; // 5.42m
+    const float roofMidZ     = HALF_ROOF_D * 0.5f;       // 1.75m
+
+    // Heavy ridge log along peak
+    glm::mat4 ridgeLog = glm::translate(baseTransform, glm::vec3(0.0f, PEAK_Y, 0.0f));
+    ridgeLog = glm::rotate(ridgeLog, glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ridgeLog = glm::scale(ridgeLog, glm::vec3(0.24f, ROOF_W + 0.20f, 0.24f));
+    drawTransformedFrustum(shader, cylinder, ridgeLog, woodDark, 24.0f, 0.15f);
+
+    // Thick woven thatch ridge cap crowning the peak seam
+    glm::mat4 ridgeCap = glm::translate(baseTransform, glm::vec3(0.0f, PEAK_Y + 0.12f, 0.0f));
+    ridgeCap = glm::scale(ridgeCap, glm::vec3(ROOF_W + 0.15f, 0.26f, 0.55f));
+    drawTransformedCube(shader, cube, ridgeCap, thatchFringe, 12.0f, 0.06f);
+
+    // Front Roof Slope (+Z side: slopes DOWN from peak at z=0 to eave at z=+HALF_ROOF_D)
+    {
+        glm::mat4 frontSlope = glm::translate(baseTransform, glm::vec3(0.0f, roofMidY, roofMidZ));
+        frontSlope = glm::rotate(frontSlope, glm::radians(ROOF_PITCH), glm::vec3(1.0f, 0.0f, 0.0f));
+        frontSlope = glm::scale(frontSlope, glm::vec3(ROOF_W, 0.22f, SLOPE_L));
+        drawTransformedCube(shader, cube, frontSlope, thatchRoof, 10.0f, 0.06f);
+
+        // Tiered / stepped thatch fringe strips along lower front eave
+        for (int t = 0; t < 3; ++t)
+        {
+            float fOffset = (float)t * 0.30f;
+            glm::mat4 fr = glm::translate(baseTransform, glm::vec3(0.0f, roofMidY, roofMidZ));
+            fr = glm::rotate(fr, glm::radians(ROOF_PITCH), glm::vec3(1.0f, 0.0f, 0.0f));
+            fr = glm::translate(fr, glm::vec3(0.0f, 0.07f - (float)t * 0.025f, SLOPE_L * 0.5f - fOffset - 0.15f));
+            fr = glm::scale(fr, glm::vec3(ROOF_W + 0.06f, 0.09f, 0.35f));
+            drawTransformedCube(shader, cube, fr, thatchFringe, 8.0f, 0.04f);
+        }
+    }
+
+    // Back Roof Slope (-Z side: slopes DOWN from peak at z=0 to eave at z=-HALF_ROOF_D)
+    {
+        glm::mat4 backSlope = glm::translate(baseTransform, glm::vec3(0.0f, roofMidY, -roofMidZ));
+        backSlope = glm::rotate(backSlope, glm::radians(-ROOF_PITCH), glm::vec3(1.0f, 0.0f, 0.0f));
+        backSlope = glm::scale(backSlope, glm::vec3(ROOF_W, 0.22f, SLOPE_L));
+        drawTransformedCube(shader, cube, backSlope, thatchRoof, 10.0f, 0.06f);
+
+        // Tiered / stepped thatch fringe strips along lower back eave
+        for (int t = 0; t < 3; ++t)
+        {
+            float fOffset = (float)t * 0.30f;
+            glm::mat4 fr = glm::translate(baseTransform, glm::vec3(0.0f, roofMidY, -roofMidZ));
+            fr = glm::rotate(fr, glm::radians(-ROOF_PITCH), glm::vec3(1.0f, 0.0f, 0.0f));
+            fr = glm::translate(fr, glm::vec3(0.0f, 0.07f - (float)t * 0.025f, -SLOPE_L * 0.5f + fOffset + 0.15f));
+            fr = glm::scale(fr, glm::vec3(ROOF_W + 0.06f, 0.09f, 0.35f));
+            drawTransformedCube(shader, cube, fr, thatchFringe, 8.0f, 0.04f);
+        }
+    }
+
+    // Front and Back lower eave fascia boards
+    for (float fz : { -HALF_ROOF_D, HALF_ROOF_D })
+    {
+        glm::mat4 eFascia = glm::translate(baseTransform, glm::vec3(0.0f, EAVE_Y - 0.04f, fz));
+        eFascia = glm::scale(eFascia, glm::vec3(ROOF_W + 0.05f, 0.14f, 0.08f));
+        drawTransformedCube(shader, cube, eFascia, woodDark, 20.0f, 0.15f);
+    }
+
+    // Exposed structural rafters underneath both slopes (9 rafter pairs along X)
+    for (int i = 0; i < 9; ++i)
+    {
+        float rx = -4.20f + (float)i * (8.40f / 8.0f);
+
+        // Front rafter
+        glm::mat4 rafF = glm::translate(baseTransform, glm::vec3(rx, roofMidY - 0.12f, roofMidZ));
+        rafF = glm::rotate(rafF, glm::radians(ROOF_PITCH), glm::vec3(1.0f, 0.0f, 0.0f));
+        rafF = glm::scale(rafF, glm::vec3(0.09f, 0.12f, SLOPE_L));
+        drawTransformedCube(shader, cube, rafF, woodDark, 20.0f, 0.15f);
+
+        // Back rafter
+        glm::mat4 rafB = glm::translate(baseTransform, glm::vec3(rx, roofMidY - 0.12f, -roofMidZ));
+        rafB = glm::rotate(rafB, glm::radians(-ROOF_PITCH), glm::vec3(1.0f, 0.0f, 0.0f));
+        rafB = glm::scale(rafB, glm::vec3(0.09f, 0.12f, SLOPE_L));
+        drawTransformedCube(shader, cube, rafB, woodDark, 20.0f, 0.15f);
+    }
+
+    // Triangular Gable Walls (Left and Right Ends) - Mathematical Watertight Fit!
+    for (float gx : { -roomWidth * 0.5f, roomWidth * 0.5f })
+    {
+        // Triangular gable wall using PrismMesh rotated 90 deg around Y
+        glm::mat4 gable = glm::translate(baseTransform, glm::vec3(gx, roofMidY, 0.0f));
+        gable = glm::rotate(gable, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        gable = glm::scale(gable, glm::vec3(TOTAL_ROOF_D, ROOF_RISE, 0.10f));
+        drawTransformedPrism(shader, prism, gable, bambooWeave, 16.0f, 0.10f);
+
+        // Sloping bargeboard trims framing the triangular roof edges
+        glm::mat4 trimF = glm::translate(baseTransform, glm::vec3(gx * 1.01f, roofMidY, roofMidZ));
+        trimF = glm::rotate(trimF, glm::radians(ROOF_PITCH), glm::vec3(1.0f, 0.0f, 0.0f));
+        trimF = glm::scale(trimF, glm::vec3(0.12f, 0.14f, SLOPE_L));
+        drawTransformedCube(shader, cube, trimF, woodDark, 20.0f, 0.15f);
+
+        glm::mat4 trimB = glm::translate(baseTransform, glm::vec3(gx * 1.01f, roofMidY, -roofMidZ));
+        trimB = glm::rotate(trimB, glm::radians(-ROOF_PITCH), glm::vec3(1.0f, 0.0f, 0.0f));
+        trimB = glm::scale(trimB, glm::vec3(0.12f, 0.14f, SLOPE_L));
+        drawTransformedCube(shader, cube, trimB, woodDark, 20.0f, 0.15f);
+
+        // Attic triangular louvered vent in gable center
+        glm::mat4 vent = glm::translate(baseTransform, glm::vec3(gx + (gx < 0 ? -0.06f : 0.06f), EAVE_Y + ROOF_RISE * 0.40f, 0.0f));
+        vent = glm::scale(vent, glm::vec3(0.04f, 0.60f, 0.75f));
+        drawTransformedCube(shader, cube, vent, woodDark, 20.0f, 0.15f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 7. LEFT MAIN ENTRANCE STAIRCASE (10 Steps, Grounded & Aligned)
+    // Extends from ground (x=-6.45m) up to veranda deck (x=-3.85m, y=1.95m, z=1.40m)
+    // ------------------------------------------------------------------------
+    const int   stairSteps = 10;
+    const float runX       = 2.60f;
+    const glm::vec2 leftSupport=terrainSupportRange(baseTransform,-3.85f-runX-.15f,1.40f,.35f,.625f,.08f);
+    const float leftGround=leftSupport.y;
+    const float riseY      = DECK_Y-leftGround;
+    const float stepH      = riseY / (float)stairSteps; // 0.195m
+    const float stepD      = runX / (float)stairSteps;  // 0.260m
+    const float stepW      = 1.00f;
+    const float stairAng   = glm::degrees(atan2f(riseY, runX)); // +36.87 deg
+    const float stairL     = sqrtf(runX * runX + riseY * riseY); // 3.25m
+    const float stairMidX  = -3.85f - runX * 0.5f; // -5.15m
+    const float stairMidY  = leftGround+riseY * 0.5f - 0.06f;
+    const float stairZ     = 1.40f;
+
+    // Concrete Ground Landing Pad at base of left staircase
+    glm::mat4 lPad = glm::translate(baseTransform, glm::vec3(-3.85f - runX - 0.15f, (leftSupport.x+leftSupport.y)*.5f, stairZ));
+    lPad = glm::scale(lPad, glm::vec3(0.70f, leftSupport.y-leftSupport.x, stepW + 0.25f));
+    drawTransformedCube(shader, cube, lPad, concreteCol, 16.0f, 0.10f);
+
+    // 10 solid step treads nestled firmly between the stringers
+    for (int s = 0; s < stairSteps; ++s)
+    {
+        float sy = leftGround+(float)(s+1)*stepH-.025f;
+        float sx = -3.85f - runX + (float)s * stepD + stepD * 0.5f;
+
+        // Tread
+        glm::mat4 step = glm::translate(baseTransform, glm::vec3(sx, sy, stairZ));
+        step = glm::scale(step, glm::vec3(stepD * 1.05f, 0.05f, stepW));
+        drawTransformedCube(shader, cube, step, woodLight, 24.0f, 0.18f);
+
+        // Riser
+        glm::mat4 riser = glm::translate(baseTransform, glm::vec3(sx + stepD * 0.48f, sy - stepH * 0.5f, stairZ));
+        riser = glm::scale(riser, glm::vec3(0.04f, stepH, stepW));
+        drawTransformedCube(shader, cube, riser, woodDark, 20.0f, 0.15f);
+    }
+
+    // Heavy angled side stringers (Left & Right of steps) - Positive slope upwards to deck!
+    for (float sideOffset : { -stepW * 0.52f, stepW * 0.52f })
+    {
+        glm::mat4 str = glm::translate(baseTransform, glm::vec3(stairMidX, stairMidY, stairZ + sideOffset));
+        str = glm::rotate(str, glm::radians(stairAng), glm::vec3(0.0f, 0.0f, 1.0f));
+        str = glm::scale(str, glm::vec3(stairL, 0.18f, 0.08f));
+        drawTransformedCube(shader, cube, str, woodDark, 24.0f, 0.18f);
+
+        // Handrail posts mounted vertically on stringer
+        for (int p = 0; p < 4; ++p)
+        {
+            float t = (float)p / 3.0f;
+            float px = -3.85f - runX * (1.0f - t);
+            float py = leftGround+riseY * t + 0.42f;
+            glm::mat4 hPost = glm::translate(baseTransform, glm::vec3(px, py, stairZ + sideOffset));
+            hPost = glm::scale(hPost, glm::vec3(0.07f, 0.85f, 0.07f));
+            drawTransformedCube(shader, cube, hPost, woodMedium, 20.0f, 0.15f);
+        }
+
+        // Continuous smooth top handrail beam
+        glm::mat4 hRail = glm::translate(baseTransform, glm::vec3(stairMidX, stairMidY + 0.82f, stairZ + sideOffset));
+        hRail = glm::rotate(hRail, glm::radians(stairAng), glm::vec3(0.0f, 0.0f, 1.0f));
+        hRail = glm::scale(hRail, glm::vec3(stairL + 0.20f, 0.07f, 0.09f));
+        drawTransformedCube(shader, cube, hRail, woodLight, 24.0f, 0.18f);
+
+        // Mid rail
+        glm::mat4 mRail = glm::translate(baseTransform, glm::vec3(stairMidX, stairMidY + 0.42f, stairZ + sideOffset));
+        mRail = glm::rotate(mRail, glm::radians(stairAng), glm::vec3(0.0f, 0.0f, 1.0f));
+        mRail = glm::scale(mRail, glm::vec3(stairL + 0.10f, 0.04f, 0.06f));
+        drawTransformedCube(shader, cube, mRail, woodMedium, 20.0f, 0.15f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 8. RIGHT SECONDARY STAIRCASE (8 Solid Steps, Dual Stringers, Balusters & Rails)
+    // Extends down from side doorway (x=3.85m, y=1.95m, z=-1.20m) to ground (x=6.17m, y=0.0m)
+    // ------------------------------------------------------------------------
+    const int   rSteps    = 8;
+    const float rRunX     = 2.32f;
+    const glm::vec2 rightSupport=terrainSupportRange(baseTransform,roomWidth*.5f+rRunX+.12f,roomZMid,.35f,.575f,.08f);
+    const float rightGround=rightSupport.y;
+    const float rRiseY    = DECK_Y-rightGround;
+    const float rStepH    = rRiseY / (float)rSteps; // 0.24375m
+    const float rStepD    = rRunX / (float)rSteps;  // 0.290m
+    const float rStepW    = 0.90f;
+    const float rDoorX    = roomWidth * 0.5f;       // 3.85m
+    const float rGroundX  = rDoorX + rRunX;          // 6.17m
+    const float rStairL   = sqrtf(rRunX * rRunX + rRiseY * rRiseY); // 3.031m
+    const float rStairAng = glm::degrees(atan2f(rRiseY, rRunX));    // 40.05 deg
+    const float rMidX     = (rDoorX + rGroundX) * 0.5f;             // 5.01m
+    const float rMidY     = rightGround+rRiseY * 0.5f - 0.06f;
+    const float rStairZ   = roomZMid;                               // -1.20m
+
+    // Concrete Ground Landing Pad at base of right staircase
+    glm::mat4 rPad = glm::translate(baseTransform, glm::vec3(rGroundX + 0.12f, (rightSupport.x+rightSupport.y)*.5f, rStairZ));
+    rPad = glm::scale(rPad, glm::vec3(0.70f, rightSupport.y-rightSupport.x, rStepW + 0.25f));
+    drawTransformedCube(shader, cube, rPad, concreteCol, 16.0f, 0.10f);
+
+    // 8 solid step treads with vertical risers nestled firmly between stringers
+    for (int s = 0; s < rSteps; ++s)
+    {
+        float sy = rightGround+(float)(s+1)*rStepH-.025f;
+        float sx = rGroundX - (float)s * rStepD - rStepD * 0.5f;
+
+        // Tread
+        glm::mat4 step = glm::translate(baseTransform, glm::vec3(sx, sy, rStairZ));
+        step = glm::scale(step, glm::vec3(rStepD * 1.05f, 0.05f, rStepW));
+        drawTransformedCube(shader, cube, step, woodLight, 24.0f, 0.18f);
+
+        // Riser (uphill vertical face of tread)
+        glm::mat4 riser = glm::translate(baseTransform, glm::vec3(sx - rStepD * 0.48f, sy - rStepH * 0.5f, rStairZ));
+        riser = glm::scale(riser, glm::vec3(0.04f, rStepH, rStepW));
+        drawTransformedCube(shader, cube, riser, woodDark, 20.0f, 0.15f);
+    }
+
+    // Heavy angled side stringers (Left & Right of steps) - Sloping down towards +X
+    for (float sideOffset : { -rStepW * 0.52f, rStepW * 0.52f })
+    {
+        // Side stringer beam
+        glm::mat4 str = glm::translate(baseTransform, glm::vec3(rMidX, rMidY, rStairZ + sideOffset));
+        str = glm::rotate(str, glm::radians(-rStairAng), glm::vec3(0.0f, 0.0f, 1.0f));
+        str = glm::scale(str, glm::vec3(rStairL, 0.18f, 0.08f));
+        drawTransformedCube(shader, cube, str, woodDark, 24.0f, 0.18f);
+
+        // Handrail posts mounted vertically along stringer
+        for (int p = 0; p < 4; ++p)
+        {
+            float t = (float)p / 3.0f;
+            float px = rDoorX + rRunX * (1.0f - t);
+            float py = rightGround+rRiseY * t + 0.42f;
+            glm::mat4 hPost = glm::translate(baseTransform, glm::vec3(px, py, rStairZ + sideOffset));
+            hPost = glm::scale(hPost, glm::vec3(0.07f, 0.85f, 0.07f));
+            drawTransformedCube(shader, cube, hPost, woodMedium, 20.0f, 0.15f);
+        }
+
+        // Continuous smooth top handrail beam
+        glm::mat4 hRail = glm::translate(baseTransform, glm::vec3(rMidX, rMidY + 0.82f, rStairZ + sideOffset));
+        hRail = glm::rotate(hRail, glm::radians(-rStairAng), glm::vec3(0.0f, 0.0f, 1.0f));
+        hRail = glm::scale(hRail, glm::vec3(rStairL + 0.20f, 0.07f, 0.09f));
+        drawTransformedCube(shader, cube, hRail, woodLight, 24.0f, 0.18f);
+
+        // Mid rail
+        glm::mat4 mRail = glm::translate(baseTransform, glm::vec3(rMidX, rMidY + 0.42f, rStairZ + sideOffset));
+        mRail = glm::rotate(mRail, glm::radians(-rStairAng), glm::vec3(0.0f, 0.0f, 1.0f));
+        mRail = glm::scale(mRail, glm::vec3(rStairL + 0.10f, 0.04f, 0.06f));
+        drawTransformedCube(shader, cube, mRail, woodMedium, 20.0f, 0.15f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 9. VERANDA FURNITURE & PROPS (Matching Photo Details)
+    // ------------------------------------------------------------------------
+    // Wooden Veranda Lounge Chair
+    {
+        const glm::vec3 chairPos = glm::vec3(0.20f, DECK_Y + 0.20f, 1.50f);
+        // Seat
+        glm::mat4 cSeat = glm::translate(baseTransform, chairPos);
+        cSeat = glm::scale(cSeat, glm::vec3(0.65f, 0.04f, 0.70f));
+        drawTransformedCube(shader, cube, cSeat, woodLight, 24.0f, 0.18f);
+
+        // 4 Legs
+        for (float lx : { -0.28f, 0.28f })
+        {
+            for (float lz : { -0.30f, 0.30f })
+            {
+                glm::mat4 cleg = glm::translate(baseTransform, chairPos + glm::vec3(lx, -0.10f, lz));
+                cleg = glm::scale(cleg, glm::vec3(0.05f, 0.20f, 0.05f));
+                drawTransformedCube(shader, cube, cleg, woodDark, 20.0f, 0.15f);
+            }
+        }
+        // Reclined backrest
+        glm::mat4 cBack = glm::translate(baseTransform, chairPos + glm::vec3(0.0f, 0.34f, -0.30f));
+        cBack = glm::rotate(cBack, glm::radians(-18.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        cBack = glm::scale(cBack, glm::vec3(0.65f, 0.65f, 0.04f));
+        drawTransformedCube(shader, cube, cBack, woodLight, 24.0f, 0.18f);
+
+        // Armrests
+        for (float ax : { -0.32f, 0.32f })
+        {
+            glm::mat4 arm = glm::translate(baseTransform, chairPos + glm::vec3(ax, 0.18f, -0.05f));
+            arm = glm::scale(arm, glm::vec3(0.06f, 0.03f, 0.60f));
+            drawTransformedCube(shader, cube, arm, woodLight, 24.0f, 0.18f);
+
+            glm::mat4 armP = glm::translate(baseTransform, chairPos + glm::vec3(ax, 0.09f, 0.22f));
+            armP = glm::scale(armP, glm::vec3(0.04f, 0.18f, 0.04f));
+            drawTransformedCube(shader, cube, armP, woodDark, 20.0f, 0.15f);
+        }
+    }
+
+    // Small low wooden side table next to chair
+    {
+        glm::mat4 tTop = glm::translate(baseTransform, glm::vec3(1.05f, DECK_Y + 0.22f, 1.50f));
+        tTop = glm::scale(tTop, glm::vec3(0.45f, 0.03f, 0.45f));
+        drawTransformedCube(shader, cube, tTop, woodMedium, 24.0f, 0.18f);
+
+        for (float tx : { -0.18f, 0.18f })
+        {
+            for (float tz : { -0.18f, 0.18f })
+            {
+                glm::mat4 tLeg = glm::translate(baseTransform, glm::vec3(1.05f + tx, DECK_Y + 0.11f, 1.50f + tz));
+                tLeg = glm::scale(tLeg, glm::vec3(0.04f, 0.22f, 0.04f));
+                drawTransformedCube(shader, cube, tLeg, woodDark, 20.0f, 0.15f);
+            }
+        }
+    }
+
+    // Terracotta water jar by doorway
+    {
+        const glm::vec3 jarPos = glm::vec3(-1.60f, DECK_Y + 0.28f, 1.90f);
+        glm::mat4 jarBody = glm::translate(baseTransform, jarPos);
+        jarBody = glm::scale(jarBody, glm::vec3(0.48f, 0.54f, 0.48f));
+        drawTransformedSphere(shader, sphere, jarBody, terracotta, 28.0f, 0.25f);
+
+        glm::mat4 jarNeck = glm::translate(baseTransform, jarPos + glm::vec3(0.0f, 0.30f, 0.0f));
+        jarNeck = glm::scale(jarNeck, glm::vec3(0.24f, 0.14f, 0.24f));
+        drawTransformedFrustum(shader, cylinder, jarNeck, terracotta, 28.0f, 0.25f);
+
+        glm::mat4 jarRim = glm::translate(baseTransform, jarPos + glm::vec3(0.0f, 0.37f, 0.0f));
+        jarRim = glm::scale(jarRim, glm::vec3(0.32f, 0.04f, 0.32f));
+        drawTransformedFrustum(shader, cylinder, jarRim, terracotta, 28.0f, 0.25f);
+    }
+
+    // Draped tropical cloth / sarong towel on front railing
+    {
+        glm::mat4 cloth = glm::translate(baseTransform, glm::vec3(2.10f, railTopY - 0.20f, 2.55f));
+        cloth = glm::scale(cloth, glm::vec3(0.60f, 0.46f, 0.11f));
+        drawTransformedCube(shader, cube, cloth, clothCream, 16.0f, 0.10f);
+
+        glm::mat4 stripe = glm::translate(baseTransform, glm::vec3(2.10f, railTopY - 0.38f, 2.55f));
+        stripe = glm::scale(stripe, glm::vec3(0.60f, 0.08f, 0.12f));
+        drawTransformedCube(shader, cube, stripe, clothBorder, 16.0f, 0.10f);
+    }
+
+    // ------------------------------------------------------------------------
+    // 10. RAISED TIMBER PLANTER BED WITH REALISTIC MULTI-FROND TROPICAL PLANTS
+    // Placed in front of the house at ground level (x=0.50m, z=3.80m)
+    // ------------------------------------------------------------------------
+    {
+        const glm::vec3 pPos = glm::vec3(0.50f, 0.18f, 3.80f);
+        const float pW = 4.40f;
+        const float pD = 1.30f;
+        const float pH = 0.36f;
+
+        // Timber planter box frame
+        glm::mat4 pBox = glm::translate(baseTransform, pPos);
+        pBox = glm::scale(pBox, glm::vec3(pW, pH, pD));
+        drawTransformedCube(shader, cube, pBox, woodDark, 20.0f, 0.12f);
+
+        // Rich dark loam soil inside
+        glm::mat4 pSoil = glm::translate(baseTransform, pPos + glm::vec3(0.0f, 0.10f, 0.0f));
+        pSoil = glm::scale(pSoil, glm::vec3(pW - 0.20f, 0.18f, pD - 0.20f));
+        drawTransformedCube(shader, cube, pSoil, soilCol, 6.0f, 0.04f);
+
+        // 5 Lush Tropical Plant Clusters with realistic arching broadleaf fronds!
+        const float pClusterX[5] = { -1.50f, -0.75f, 0.00f, 0.85f, 1.55f };
+        const float pClusterZ[5] = {  0.10f, -0.15f, 0.15f, -0.10f, 0.12f };
+        const float pClusterS[5] = {  0.75f,  0.85f, 0.95f,  0.80f, 0.70f };
+
+        for (int c = 0; c < 5; ++c)
+        {
+            glm::vec3 cPos = pPos + glm::vec3(pClusterX[c], 0.22f, pClusterZ[c]);
+            float cScale = pClusterS[c];
+
+            // 7 Arching leaves radiating in a circle
+            const int numLeaves = 7;
+            for (int l = 0; l < numLeaves; ++l)
+            {
+                float yaw = (float)l * (360.0f / (float)numLeaves) + (float)c * 25.0f;
+                float droop = 28.0f + (float)(l % 3) * 6.0f;
+                float leafL = 0.55f * cScale;
+
+                glm::mat4 lf = glm::translate(baseTransform, cPos);
+                lf = glm::rotate(lf, glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f));
+                lf = glm::rotate(lf, glm::radians(droop), glm::vec3(1.0f, 0.0f, 0.0f));
+                lf = glm::translate(lf, glm::vec3(0.0f, 0.0f, leafL * 0.5f));
+                lf = glm::scale(lf, glm::vec3(0.14f * cScale, 0.018f, leafL));
+                glm::vec3 lCol = (l % 2 == 0) ? leafDark : leafBright;
+                drawTransformedCube(shader, cube, lf, lCol, 16.0f, 0.15f);
+            }
+
+            // Central shoot cone
+            glm::mat4 shoot = glm::translate(baseTransform, cPos + glm::vec3(0.0f, 0.20f * cScale, 0.0f));
+            shoot = glm::scale(shoot, glm::vec3(0.12f * cScale, 0.40f * cScale, 0.12f * cScale));
+            drawTransformedFrustum(shader, cone, shoot, leafBright, 16.0f, 0.18f);
+
+            // Vibrant tropical flower stalk (Heliconia bracts) on selected plants
+            if (c == 1 || c == 3)
+            {
+                glm::mat4 stem = glm::translate(baseTransform, cPos + glm::vec3(0.0f, 0.30f * cScale, 0.0f));
+                stem = glm::scale(stem, glm::vec3(0.03f, 0.60f * cScale, 0.03f));
+                drawTransformedCube(shader, cube, stem, leafDark, 12.0f, 0.10f);
+
+                // Alternating flower petal bracts
+                for (int b = 0; b < 4; ++b)
+                {
+                    float by = 0.20f + (float)b * 0.10f;
+                    float bSide = (b % 2 == 0) ? 1.0f : -1.0f;
+                    glm::mat4 fl = glm::translate(baseTransform, cPos + glm::vec3(bSide * 0.08f * cScale, (0.30f + by) * cScale, 0.0f));
+                    fl = glm::rotate(fl, glm::radians(bSide * 35.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+                    fl = glm::scale(fl, glm::vec3(0.12f * cScale, 0.05f * cScale, 0.04f));
+                    drawTransformedCube(shader, cube, fl, (b == 3 ? flowerGold : flowerRed), 20.0f, 0.22f);
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 11. TOWERING SHADE TREE (Behind and Beside the Left Staircase)
+    // Placed at x=-6.20m, z=-1.80m so it NEVER collides with the stairs!
+    // ------------------------------------------------------------------------
+    {
+        const glm::vec3 treeBase = glm::vec3(-6.20f, 0.0f, -1.80f);
+
+        // Segmented organic leaning trunk rising and curving over the roof
+        glm::vec3 curP = treeBase;
+        const glm::vec3 trunkSteps[4] = {
+            glm::vec3(0.15f, 2.20f, 0.10f),
+            glm::vec3(0.40f, 2.30f, 0.25f),
+            glm::vec3(0.55f, 2.10f, 0.20f),
+            glm::vec3(0.50f, 1.80f, 0.15f)
+        };
+        const float trunkR[4] = { 0.65f, 0.54f, 0.44f, 0.34f };
+
+        for (int seg = 0; seg < 4; ++seg)
+        {
+            glm::vec3 nextP = curP + trunkSteps[seg];
+            glm::vec3 midP = (curP + nextP) * 0.5f;
+            float segLen = glm::length(trunkSteps[seg]);
+
+            glm::mat4 trSeg = glm::translate(baseTransform, midP);
+            glm::vec3 dir = glm::normalize(trunkSteps[seg]);
+            float yawDeg = glm::degrees(atan2f(dir.x, dir.z));
+            float pitchDeg = glm::degrees(asinf(-dir.y));
+            trSeg = glm::rotate(trSeg, glm::radians(yawDeg), glm::vec3(0.0f, 1.0f, 0.0f));
+            trSeg = glm::rotate(trSeg, glm::radians(pitchDeg + 90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+            trSeg = glm::scale(trSeg, glm::vec3(trunkR[seg], segLen, trunkR[seg]));
+            drawTransformedFrustum(shader, cylinder, trSeg, treeBark, 16.0f, 0.12f);
+
+            curP = nextP;
+        }
+
+        // Lush leafy foliage canopy clusters shading the roof and stairs
+        const glm::vec3 canopyOffsets[7] = {
+            glm::vec3(-0.4f, 0.0f,  0.5f),
+            glm::vec3( 0.6f, 0.5f, -0.4f),
+            glm::vec3(-0.8f, 0.8f, -0.2f),
+            glm::vec3( 1.1f, 0.2f,  0.6f),
+            glm::vec3( 0.0f, 1.3f,  0.0f),
+            glm::vec3( 0.8f, 1.1f, -0.5f),
+            glm::vec3(-0.5f, 1.2f,  0.7f)
+        };
+        const float canopySizes[7] = { 2.4f, 2.8f, 2.2f, 2.6f, 3.2f, 2.5f, 2.3f };
+
+        for (int c = 0; c < 7; ++c)
+        {
+            glm::mat4 can = glm::translate(baseTransform, curP + canopyOffsets[c]);
+            can = glm::scale(can, glm::vec3(canopySizes[c], canopySizes[c] * 0.80f, canopySizes[c]));
+            glm::vec3 cCol = (c % 2 == 0) ? treeFoliage : glm::vec3(0.20f, 0.48f, 0.16f);
+            drawTransformedSphere(shader, sphere, can, cCol, 12.0f, 0.14f);
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 12. PEACEFUL SLEEPING DOG (Curled on a Woven Straw Mat near Stairs)
+    // Placed safely near the base of the stairs at x=-6.60m, z=2.60m
+    // ------------------------------------------------------------------------
+    {
+        const glm::vec3 dogBase = glm::vec3(-6.60f, 0.02f, 2.60f);
+
+        // Woven straw pet mat
+        glm::mat4 mat = glm::translate(baseTransform, dogBase);
+        mat = glm::scale(mat, glm::vec3(0.85f, 0.02f, 0.65f));
+        drawTransformedCube(shader, cube, mat, matStraw, 12.0f, 0.08f);
+
+        // Curled torso
+        glm::mat4 body = glm::translate(baseTransform, dogBase + glm::vec3(0.0f, 0.12f, 0.0f));
+        body = glm::rotate(body, glm::radians(25.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        body = glm::scale(body, glm::vec3(0.44f, 0.20f, 0.28f));
+        drawTransformedSphere(shader, sphere, body, dogFur, 24.0f, 0.20f);
+
+        // Head resting forward on paws
+        glm::mat4 head = glm::translate(baseTransform, dogBase + glm::vec3(0.22f, 0.08f, 0.08f));
+        head = glm::scale(head, glm::vec3(0.18f, 0.14f, 0.16f));
+        drawTransformedSphere(shader, sphere, head, dogFur, 24.0f, 0.20f);
+
+        // Floppy ears
+        for (float ez : { -0.06f, 0.06f })
+        {
+            glm::mat4 ear = glm::translate(baseTransform, dogBase + glm::vec3(0.18f, 0.12f, 0.08f + ez));
+            ear = glm::scale(ear, glm::vec3(0.05f, 0.08f, 0.04f));
+            drawTransformedSphere(shader, sphere, ear, dogDark, 16.0f, 0.15f);
+        }
+
+        // Snout
+        glm::mat4 snout = glm::translate(baseTransform, dogBase + glm::vec3(0.30f, 0.06f, 0.09f));
+        snout = glm::scale(snout, glm::vec3(0.07f, 0.06f, 0.07f));
+        drawTransformedSphere(shader, sphere, snout, dogDark, 32.0f, 0.30f);
+
+        // Front resting paws
+        for (float pz : { 0.04f, 0.12f })
+        {
+            glm::mat4 paw = glm::translate(baseTransform, dogBase + glm::vec3(0.28f, 0.02f, pz));
+            paw = glm::scale(paw, glm::vec3(0.12f, 0.04f, 0.05f));
+            drawTransformedCube(shader, cube, paw, dogFur, 20.0f, 0.15f);
+        }
+
+        // Curled tail
+        glm::mat4 tail = glm::translate(baseTransform, dogBase + glm::vec3(-0.22f, 0.06f, -0.06f));
+        tail = glm::rotate(tail, glm::radians(-35.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        tail = glm::scale(tail, glm::vec3(0.16f, 0.05f, 0.05f));
+        drawTransformedSphere(shader, sphere, tail, dogFur, 20.0f, 0.15f);
+    }
+}
+
 #endif // SCENE_OBJECTS_H
 
 // ============================================================================
@@ -3965,18 +5306,30 @@ inline glm::mat4 floatingBoatTransform(BoatFloatState& state,glm::vec3 position,
 {
     float a=glm::radians(heading);
     glm::vec3 forward(sinf(a),0,cosf(a)),right(cosf(a),0,-sinf(a));
-    const float halfLength=1.72f*scale,halfBeam=0.56f*scale;
-    glm::vec3 p,n,bow,stern,port,starboard;
-    getWaterSurfaceAt(position.x,position.z,time,p,n);
-    glm::vec3 q=position+forward*halfLength; getWaterSurfaceAt(q.x,q.z,time,bow,n);
-    q=position-forward*halfLength; getWaterSurfaceAt(q.x,q.z,time,stern,n);
-    q=position-right*halfBeam; getWaterSurfaceAt(q.x,q.z,time,port,n);
-    q=position+right*halfBeam; getWaterSurfaceAt(q.x,q.z,time,starboard,n);
+    // Fit y = intercept + acrossSlope*x + alongSlope*z to 21 hull samples.
+    // Sampling stations, rather than individual peaks at five points, prevents
+    // a single crest from sharply rolling the whole boat. These are kinematic
+    // support samples, not a full displaced-volume fluid simulation.
+    glm::mat3 normalEquations(0);glm::vec3 rhs(0);
+    for(int row=0;row<7;++row)
+    {
+        float z=glm::mix(-1.65f,1.72f,row/6.0f)*scale;
+        float t=(z/scale+1.97f)/4.22f;
+        float beam=(.73f*(1-powf(t,3.4f))+.018f)*.76f*scale;
+        for(int side=-1;side<=1;++side)
+        {
+            float x=side*beam;glm::vec3 p,n,q=position+forward*z+right*x;
+            getWaterSurfaceAt(q.x,q.z,time,p,n);
+            glm::vec3 basis(1,x,z);
+            normalEquations+=glm::outerProduct(basis,basis);rhs+=basis*p.y;
+        }
+    }
+    glm::vec3 plane=glm::inverse(normalEquations)*rhs;
     float planing=glm::smoothstep(4.0f,9.0f,glm::max(speed,0.0f));
-    float height=(2*p.y+bow.y+stern.y+port.y+starboard.y)/6-0.055f*scale+0.09f*planing;
+    float height=plane.x-0.055f*scale+0.09f*planing;
     // A positive X rotation lowers local +Z: a rising bow needs negative pitch.
-    float pitch=-glm::degrees(atan2f(bow.y-stern.y,2*halfLength))-3.0f*planing;
-    float roll=glm::degrees(atan2f(starboard.y-port.y,2*halfBeam));
+    float pitch=-glm::degrees(atanf(plane.z))-3.0f*planing;
+    float roll=glm::degrees(atanf(plane.y));
     roll -= glm::clamp(glm::degrees(atanf(glm::radians(yawRate)*speed/9.81f))*0.40f,-7.0f,7.0f);
     if(!state.initialized)
     {
@@ -4063,6 +5416,44 @@ public:
     }
 };
 
+struct SolidObstacle {
+    glm::vec2 center,halfSize;
+    float yaw=0,radius=0; // radius>0: circle; otherwise oriented box.
+    static SolidObstacle circle(glm::vec3 p,float r){return {{p.x,p.z},{0,0},0,r};}
+    static SolidObstacle box(const glm::mat4& transform,glm::vec2 half){return {{transform[3].x,transform[3].z},half,atan2f(transform[2].x,transform[2].z),0};}
+};
+inline std::vector<SolidObstacle> g_atvObstacles;
+inline bool atvTouchesObstacle(glm::vec3 p,float heading,const SolidObstacle& obstacle) {
+    float angle=glm::radians(heading);
+    glm::vec2 right(cosf(angle),-sinf(angle)),forward(sinf(angle),cosf(angle));
+    glm::vec2 delta=obstacle.center-glm::vec2(p.x,p.z),half(.97f,1.18f);
+    float bound=glm::length(half)+(obstacle.radius>0?obstacle.radius:glm::length(obstacle.halfSize));
+    if(glm::dot(delta,delta)>bound*bound)return false;
+    if(obstacle.radius>0){
+        glm::vec2 local(glm::dot(delta,right),glm::dot(delta,forward));
+        glm::vec2 d=local-glm::clamp(local,-half,half);return glm::dot(d,d)<obstacle.radius*obstacle.radius;
+    }
+    glm::vec2 r(cosf(obstacle.yaw),-sinf(obstacle.yaw)),f(sinf(obstacle.yaw),cosf(obstacle.yaw));
+    for(glm::vec2 axis:{right,forward,r,f}){
+        float a=half.x*fabsf(glm::dot(right,axis))+half.y*fabsf(glm::dot(forward,axis));
+        float b=obstacle.halfSize.x*fabsf(glm::dot(r,axis))+obstacle.halfSize.y*fabsf(glm::dot(f,axis));
+        if(fabsf(glm::dot(delta,axis))>=a+b)return false;
+    }
+    return true;
+}
+inline bool atvSolidsClear(glm::vec3 p,float heading) {
+    for(const auto& obstacle:g_atvObstacles)if(atvTouchesObstacle(p,heading,obstacle))return false;return true;
+}
+// Sample the sweep at <=2cm translation / <=0.5 degree rotation. The solver
+// already runs at 120Hz, so this also covers thin posts at maximum speed.
+inline bool atvSweepClear(glm::vec3 from,float fromHeading,glm::vec3 to,float toHeading) {
+    float turn=glm::radians(toHeading-fromHeading);
+    toHeading=fromHeading+glm::degrees(atan2f(sinf(turn),cosf(turn)));
+    int steps=std::max(1,(int)ceilf(std::max(glm::distance(from,to)/.02f,fabsf(toHeading-fromHeading)/.5f)));
+    for(int i=1;i<=steps;++i)if(!atvSolidsClear(glm::mix(from,to,(float)i/steps),glm::mix(fromHeading,toHeading,(float)i/steps)))return false;
+    return true;
+}
+
 struct BeachATVState
 {
     glm::vec3 pos=glm::vec3(0,0,43);
@@ -4071,8 +5462,18 @@ struct BeachATVState
     int completedTours=0;
     bool touring=false;
     bool parked=true;
+    bool blocked=false;
     float yawRate=0,bodyPitch=0,bodyRoll=0,pitchVelocity=0,rollVelocity=0;
     float reverseWait=0;
+};
+
+struct ATVBatteryState {
+    float percent=60;bool charging=false,keyDown=false;
+    static constexpr float chargePerSecond=100.f/30.f,percentPerMetre=.025f;
+    bool hasPower()const{return percent>0;}
+    bool press(bool down){bool edge=down && !keyDown;keyDown=down;return edge;}
+    void advance(float dt){if(charging && std::isfinite(dt) && dt>0)percent=glm::min(100.f,percent+chargePerSecond*dt);}
+    void useDistance(float metres){if(!charging && std::isfinite(metres) && metres>0)percent=glm::max(0.f,percent-percentPerMetre*metres);}
 };
 
 inline void startBeachTour(BeachATVState& state,const BeachCircuit& circuit)
@@ -4081,6 +5482,7 @@ inline void startBeachTour(BeachATVState& state,const BeachCircuit& circuit)
     state.tourStartDistance=state.circuitDistance;
     state.pos=circuit.sample(state.circuitDistance,&state.heading);
     state.tourTravelled=0;state.speed=0;state.touring=true;state.parked=false;
+    state.blocked=false;
 }
 
 inline bool atvFootprintIsDry(const glm::vec3& p,float heading)
@@ -4104,6 +5506,7 @@ inline void stepBeachATV(BeachATVState& state,const BeachCircuit& circuit,
     glm::vec3 oldPosition=state.pos;
     float oldSpeed=state.speed;
     float previousHeading=state.heading;
+    state.blocked=false;
     if(state.touring)
     {
         // A gentle six m/s tour, slowing smoothly for the final few metres.
@@ -4183,6 +5586,16 @@ inline void stepBeachATV(BeachATVState& state,const BeachCircuit& circuit,
             state.speed*=expf(-18*dt);state.yawRate*=expf(-12*dt);
         }
     }
+    // Validate both manual and guided motion. On contact keep the last safe
+    // pose and stop longitudinal/yaw velocity; reverse remains available.
+    if(!atvSweepClear(oldPosition,previousHeading,state.pos,state.heading)) {
+        float turn=glm::radians(state.heading-previousHeading);
+        glm::vec3 proposed=state.pos;float proposedHeading=previousHeading+glm::degrees(atan2f(sinf(turn),cosf(turn))),lo=0,hi=1;
+        for(int i=0;i<14;++i){float t=(lo+hi)*.5f;
+            if(atvSweepClear(oldPosition,previousHeading,glm::mix(oldPosition,proposed,t),glm::mix(previousHeading,proposedHeading,t)))lo=t;else hi=t;}
+        state.pos=glm::mix(oldPosition,proposed,lo);state.heading=glm::mix(previousHeading,proposedHeading,lo);
+        state.speed=state.yawRate=0;state.blocked=true;state.touring=false;state.parked=true;
+    }
     float travelled=glm::length(glm::vec2(state.pos.x-oldPosition.x,state.pos.z-oldPosition.z));
     state.wheelSpin=fmodf(state.wheelSpin+glm::degrees(copysignf(travelled,state.speed)/0.43f),360.0f);
     float a=glm::radians(state.heading);
@@ -4210,11 +5623,14 @@ inline void updateBeachATV(BeachATVState& state,const BeachCircuit& circuit,
 {
     // Integrate every elapsed millisecond, including slow rendering frames.
     float remaining=glm::clamp(dt,0.0f,.25f);
+    bool blocked=false;
     while(remaining>0.000001f)
     {
         float step=glm::min(remaining,1.0f/120.0f);
         stepBeachATV(state,circuit,throttle,steer,step,brake);remaining-=step;
+        blocked|=state.blocked;
     }
+    state.blocked=blocked;
 }
 
 inline glm::mat4 beachATVTransform(const BeachATVState& state)
@@ -4305,12 +5721,12 @@ public:
     {
         if(!count)return;
         glm::mat4 identity(1);
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"model"),1,GL_FALSE,glm::value_ptr(identity));
-        glUniform3f(glGetUniformLocation(shader.ID,"objectColor"),.39f,.29f,.17f);
-        glUniform1f(glGetUniformLocation(shader.ID,"shininess"),4);
-        glUniform1f(glGetUniformLocation(shader.ID,"specularStrength"),.015f);
-        glUniform1i(glGetUniformLocation(shader.ID,"unlit"),0);
-        glUniform1i(glGetUniformLocation(shader.ID,"useTexture"),0);
+        glUniformMatrix4fv(shader.location("model"),1,GL_FALSE,glm::value_ptr(identity));
+        glUniform3f(shader.location("objectColor"),.39f,.29f,.17f);
+        glUniform1f(shader.location("shininess"),4);
+        glUniform1f(shader.location("specularStrength"),.015f);
+        glUniform1i(shader.location("unlit"),0);
+        glUniform1i(shader.location("useTexture"),0);
         glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(-1,-1);
         glBindVertexArray(vao);glDrawArrays(GL_TRIANGLES,0,(GLsizei)(count*12));glBindVertexArray(0);
         glDisable(GL_POLYGON_OFFSET_FILL);
@@ -4330,6 +5746,22 @@ inline glm::mat4 beachChargingStationTransform(const BeachCircuit& circuit)
     if(glm::dot(right,glm::vec3(gradient.x,0,gradient.y))<0)heading+=180;
     p.y=getCoastalTerrainElevation(p.x,p.z)+.06f;
     return glm::rotate(glm::translate(glm::mat4(1),p),glm::radians(heading),glm::vec3(0,1,0));
+}
+inline float atvChargerDistance(const BeachATVState& state,const BeachCircuit& circuit) {
+    auto point=beachChargingStationTransform(circuit)*glm::vec4(1.23f,0,.65f,1);
+    return glm::length(glm::vec2(state.pos.x-point.x,state.pos.z-point.z));
+}
+inline bool canConnectATVCharger(const BeachATVState& state,const BeachCircuit& circuit) {
+    return !state.touring && fabsf(state.speed)<=.1f && atvChargerDistance(state,circuit)<=2.f &&
+        atvFootprintIsDry(state.pos,state.heading) && atvSolidsClear(state.pos,state.heading);
+}
+inline void updatePoweredBeachATV(BeachATVState& state,ATVBatteryState& battery,const BeachCircuit& circuit,
+    float throttle,float steer,float dt,bool brake=false) {
+    if(battery.charging){state.speed=state.yawRate=0;state.touring=false;state.parked=true;battery.advance(dt);return;}
+    if(!battery.hasPower()){throttle=0;state.touring=false;}
+    auto before=state.pos;updateBeachATV(state,circuit,throttle,steer,dt,brake);
+    battery.useDistance(glm::length(glm::vec2(state.pos.x-before.x,state.pos.z-before.z)));
+    if(!battery.hasPower())state.touring=false;
 }
 #endif
 
@@ -4356,6 +5788,7 @@ enum ViewPreset
     VIEW_PALM_ROCKS,
     VIEW_RIGHT_BEACH,
     VIEW_SEA_BOATS,
+    VIEW_STILT_HOUSE,
     VIEW_PRESET_COUNT
 };
 
@@ -4599,6 +6032,14 @@ public:
             name = "Ocean Sailing Fleet [Key: 7]";
             break;
 
+        case VIEW_STILT_HOUSE:
+            desiredTarget = glm::vec3(-24.0f, surfaceHeight ? surfaceHeight(-24.0f, 10.0f) + 2.5f : 3.5f, 10.0f);
+            desiredDistance = 16.0f;
+            desiredYaw = 35.0f;
+            desiredPitch = 14.0f;
+            name = "Raised Tropical Stilt House [Key: Y]";
+            break;
+
         case VIEW_OVERVIEW:
         default:
             // Ocean-facing establishing shot: sea -> beach -> coconut belt ->
@@ -4828,6 +6269,126 @@ inline glm::mat4 beachChairTransform(const BeachChairPlacement& p)
     m=glm::rotate(m,atan2f(right-left,1.04f*p.scale),glm::vec3(0,0,1));
     return glm::scale(m,glm::vec3(p.scale));
 }
+
+inline glm::mat4 standingBeachRobotTransform()
+{
+    static const auto chair=safeBeachChairPlacements()[0];
+    glm::vec3 ground(chair.x+3.4f,0,chair.z-2.6f);
+    for(int i=0;i<80 && getIslandSignedDistance(ground.x,ground.z)<15.0f;++i)
+    {
+        glm::vec2 inward(
+            getIslandSignedDistance(ground.x+.1f,ground.z)-getIslandSignedDistance(ground.x-.1f,ground.z),
+            getIslandSignedDistance(ground.x,ground.z+.1f)-getIslandSignedDistance(ground.x,ground.z-.1f));
+        inward=glm::normalize(inward);ground.x+=inward.x*.2f;ground.z+=inward.y*.2f;
+    }
+    ground.y=getCoastalTerrainElevation(ground.x,ground.z)+.005f;
+    float yaw=glm::radians(-12.0f);
+    glm::vec3 f(sinf(yaw),0,cosf(yaw)),r(cosf(yaw),0,-sinf(yaw));
+    auto height=[&](glm::vec3 q){return getCoastalTerrainElevation(q.x,q.z);};
+    glm::mat4 m=glm::rotate(glm::translate(glm::mat4(1),ground),yaw,glm::vec3(0,1,0));
+    m=glm::rotate(m,-atan2f(height(ground+f*.3f)-height(ground-f*.3f),.6f),glm::vec3(1,0,0));
+    m=glm::rotate(m,atan2f(height(ground+r*.3f)-height(ground-r*.3f),.6f),glm::vec3(0,0,1));
+    // Straight legs place the foot soles 0.90 below the pelvis root.
+    return glm::translate(m,glm::vec3(0,.90f,0));
+}
+
+inline glm::mat4 seatedBeachRobotTransform(const glm::mat4& chair)
+{
+    // Seat top .4975 + half pelvis .10 + a .005 gap. Knees extend beyond
+    // the front slat (.725), so the shins cannot pass through the cushion.
+    return glm::translate(chair,glm::vec3(0,.6025f,.36f));
+}
+inline RobotLegPose seatedBeachRobotLegs()
+{
+    RobotLegPose pose;pose.shinLength=.5125f;pose.hipDrop=.035f;
+    for(int i=0;i<2;++i){pose.hipPitch[i]=-90;pose.kneePitch[i]=90;}
+    return pose;
+}
+
+struct BeachRobotState {
+    glm::vec3 pos;
+    float heading=-12,speed=0,phase=0,gaitBlend=0;
+    bool active=false,keyDown=false,blocked=false;
+    BeachRobotState(){pos=glm::vec3(standingBeachRobotTransform()[3]);pos.y=getCoastalTerrainElevation(pos.x,pos.z);}
+    bool press(bool down){bool edge=down&&!keyDown;keyDown=down;if(edge){active=!active;speed=0;blocked=false;}return edge;}
+};
+
+inline bool beachRobotPositionClear(glm::vec3 p,const std::vector<SolidObstacle>& obstacles,
+    const BeachATVState* atv=nullptr)
+{
+    // Keep shoulders and both footfalls inside the dry beach corridor.
+    float inset=getIslandSignedDistance(p.x,p.z);
+    if(inset<5.0f || inset>18.0f)return false;
+    for(size_t i=1;i<obstacles.size();++i) // First obstacle is this moving robot.
+    {
+        const auto& o=obstacles[i];glm::vec2 d=glm::vec2(p.x,p.z)-o.center;
+        if(o.radius>0){if(glm::length(d)<o.radius+.46f)return false;}
+        else {
+            glm::vec2 right(cosf(o.yaw),-sinf(o.yaw)),forward(sinf(o.yaw),cosf(o.yaw));
+            glm::vec2 local(glm::dot(d,right),glm::dot(d,forward));
+            glm::vec2 nearest=glm::clamp(local,-o.halfSize,o.halfSize);
+            if(glm::length(local-nearest)<.46f)return false;
+        }
+    }
+    return !atv || !atvTouchesObstacle(atv->pos,atv->heading,SolidObstacle::circle(p,.46f));
+}
+
+inline void updateBeachRobot(BeachRobotState& state,float walk,float turn,float dt,
+    const std::vector<SolidObstacle>& obstacles,const BeachATVState* atv=nullptr)
+{
+    if(!std::isfinite(dt) || dt<=0)return;
+    dt=glm::min(dt,.25f);int steps=glm::max(1,(int)ceilf(dt/.008f));float h=dt/steps;
+    walk=state.active?glm::clamp(walk,-1.f,1.f):0;turn=state.active?glm::clamp(turn,-1.f,1.f):0;
+    state.blocked=false;
+    for(int i=0;i<steps;++i)
+    {
+        state.heading=std::remainder(state.heading+turn*100*h,360.f);
+        float goal=walk*(walk<0?1.0f:1.65f);
+        state.speed+=glm::clamp(goal-state.speed,-5*h,5*h);
+        float yaw=glm::radians(state.heading);glm::vec3 direction(sinf(yaw),0,cosf(yaw));
+        glm::vec3 candidate=state.pos+direction*(state.speed*h);
+        if(fabsf(state.speed)>.0001f && !beachRobotPositionClear(candidate,obstacles,atv))
+        {state.speed=0;state.blocked=true;}
+        else {state.phase=std::remainder(state.phase+state.speed*h*6.283185307f/.72f,6.283185307f);state.pos=candidate;}
+        if(fabsf(state.speed)<.1f && turn!=0)
+            state.phase=std::remainder(state.phase+fabsf(turn)*h*4,6.283185307f);
+        float gaitGoal=glm::min(glm::max(fabsf(state.speed)/.6f,fabsf(turn)*.65f),1.f);
+        state.gaitBlend=glm::mix(state.gaitBlend,gaitGoal,1-expf(-12*h));
+    }
+    state.pos.y=getCoastalTerrainElevation(state.pos.x,state.pos.z);
+}
+
+struct BeachRobotPose {
+    glm::mat4 transform;
+    RobotLegPose legs;
+    float leftArm=0,rightArm=0;
+};
+inline BeachRobotPose beachRobotPose(const BeachRobotState& state)
+{
+    BeachRobotPose pose;
+    float pelvisHeight=glm::mix(.88f,.83f,state.gaitBlend)+.008f*state.gaitBlend*cosf(state.phase*2);
+    float yaw=glm::radians(state.heading);
+    pose.transform=glm::rotate(glm::translate(glm::mat4(1),state.pos+glm::vec3(0,pelvisHeight,0)),yaw,glm::vec3(0,1,0));
+    for(int i=0;i<2;++i)
+    {
+        float phase=fmodf(state.phase+i*3.141592654f+12.566370614f,6.283185307f);
+        float u=phase/3.141592654f;
+        // Linear stance matches distance travelled; smooth airborne return.
+        float stride=u<1?.18f-.36f*u:-.18f+.36f*glm::smoothstep(0.f,1.f,u-1);
+        float lift=u<1?0:.12f*sinf((u-1)*3.141592654f);
+        float x=i==0?-.16f:.16f,z=.13f+stride*state.gaitBlend;
+        glm::vec3 footWorld=glm::vec3(pose.transform*glm::vec4(x,0,z,1));
+        float targetY=getCoastalTerrainElevation(footWorld.x,footWorld.z)+.055f+lift*state.gaitBlend;
+        float dy=targetY-state.pos.y-pelvisHeight+.07f,dz=z-.13f;
+        float reach=glm::clamp(sqrtf(dy*dy+dz*dz),.15f,.7799f);
+        float knee=acosf(glm::clamp((reach*reach-2*.39f*.39f)/(2*.39f*.39f),-1.f,1.f));
+        float hip=atan2f(-dz,-dy)-knee*.5f;
+        pose.legs.hipPitch[i]=glm::degrees(hip);pose.legs.kneePitch[i]=glm::degrees(knee);
+        pose.legs.anklePitch[i]=-glm::degrees(hip+knee);
+    }
+    pose.leftArm=20*sinf(state.phase)*state.gaitBlend;pose.rightArm=-pose.leftArm;
+    return pose;
+}
 #endif
 
 // ============================================================================
@@ -4867,10 +6428,10 @@ public:
     void bind(Shader& shader,float hour) const
     {
         shader.Activate();
-        glUniform1i(glGetUniformLocation(shader.ID,"nightLightCount"),(int)positions.size());
-        glUniform4fv(glGetUniformLocation(shader.ID,"nightLightPositions[0]"),(int)positions.size(),glm::value_ptr(positions[0]));
-        glUniform4fv(glGetUniformLocation(shader.ID,"nightLightColors[0]"),(int)colors.size(),glm::value_ptr(colors[0]));
-        glUniform1f(glGetUniformLocation(shader.ID,"nightLightIntensity"),islandNightIntensity(hour));
+        glUniform1i(shader.location("nightLightCount"),(int)positions.size());
+        glUniform4fv(shader.location("nightLightPositions[0]"),(int)positions.size(),glm::value_ptr(positions[0]));
+        glUniform4fv(shader.location("nightLightColors[0]"),(int)colors.size(),glm::value_ptr(colors[0]));
+        glUniform1f(shader.location("nightLightIntensity"),islandNightIntensity(hour));
     }
     void draw(Shader& shader,const CubeMesh& cube,const SphereMesh& sphere,float hour)const
     {
@@ -5091,16 +6652,16 @@ public:
     void draw(Shader& shader,float time)const
     {
         glm::mat4 identity(1);
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"model"),1,GL_FALSE,glm::value_ptr(identity));
-        glUniform1i(glGetUniformLocation(shader.ID,"foliagePass"),1);
-        glUniform1f(glGetUniformLocation(shader.ID,"environmentTime"),time);
-        glUniform1i(glGetUniformLocation(shader.ID,"shadingMode"),0);
-        glUniform1i(glGetUniformLocation(shader.ID,"useTexture"),0);
-        glUniform1i(glGetUniformLocation(shader.ID,"unlit"),0);
-        glUniform1f(glGetUniformLocation(shader.ID,"shininess"),8);
-        glUniform1f(glGetUniformLocation(shader.ID,"specularStrength"),.035f);
+        glUniformMatrix4fv(shader.location("model"),1,GL_FALSE,glm::value_ptr(identity));
+        glUniform1i(shader.location("foliagePass"),1);
+        glUniform1f(shader.location("environmentTime"),time);
+        glUniform1i(shader.location("shadingMode"),0);
+        glUniform1i(shader.location("useTexture"),0);
+        glUniform1i(shader.location("unlit"),0);
+        glUniform1f(shader.location("shininess"),8);
+        glUniform1f(shader.location("specularStrength"),.035f);
         glBindVertexArray(vao);glDrawArrays(GL_TRIANGLES,0,vertexCount);glBindVertexArray(0);
-        glUniform1i(glGetUniformLocation(shader.ID,"foliagePass"),0);
+        glUniform1i(shader.location("foliagePass"),0);
     }
     void cleanup(){glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);}
 };
@@ -5193,18 +6754,50 @@ public:
     void draw(Shader& shader)const
     {
         glm::mat4 model(1);
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"model"),1,GL_FALSE,glm::value_ptr(model));
-        glUniform3f(glGetUniformLocation(shader.ID,"objectColor"),.38f,.36f,.31f);
-        glUniform1i(glGetUniformLocation(shader.ID,"useTexture"),0);
-        glUniform1i(glGetUniformLocation(shader.ID,"terrainPalette"),0);
-        glUniform1i(glGetUniformLocation(shader.ID,"shadingMode"),0);
-        glUniform1i(glGetUniformLocation(shader.ID,"unlit"),0);
-        glUniform1f(glGetUniformLocation(shader.ID,"shininess"),10);
-        glUniform1f(glGetUniformLocation(shader.ID,"specularStrength"),.06f);
+        glUniformMatrix4fv(shader.location("model"),1,GL_FALSE,glm::value_ptr(model));
+        glUniform3f(shader.location("objectColor"),.38f,.36f,.31f);
+        glUniform1i(shader.location("useTexture"),0);
+        glUniform1i(shader.location("terrainPalette"),0);
+        glUniform1i(shader.location("shadingMode"),0);
+        glUniform1i(shader.location("unlit"),0);
+        glUniform1f(shader.location("shininess"),10);
+        glUniform1f(shader.location("specularStrength"),.06f);
         glBindVertexArray(vao);glDrawArrays(GL_TRIANGLES,0,(GLsizei)vertices.size()/8);glBindVertexArray(0);
     }
     void cleanup(){glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);}
 };
 #endif
+
+// Placement-derived collision world. Decorative foliage is intentionally not
+// solid; only trunks, poles and actual equipment impede the vehicle.
+inline std::vector<SolidObstacle> islandSolidObstacles(const BeachCircuit& circuit,
+    const std::vector<BeachChairPlacement>& chairs,const IslandNightLights& lights,
+    const std::vector<glm::vec3>& forestRoots,const std::vector<glm::vec3>& vegetationRoots) {
+    std::vector<SolidObstacle> result;
+    result.push_back(SolidObstacle::circle(glm::vec3(standingBeachRobotTransform()[3]),.44f));
+    for(const auto& p:chairs)result.push_back(SolidObstacle::box(beachChairTransform(p),{.64f*p.scale,.85f*p.scale}));
+    if(!chairs.empty()){const auto& p=chairs[0];result.push_back(SolidObstacle::circle({p.x-1.6f,0,p.z-1.2f},.15f));}
+    auto bay=beachChargingStationTransform(circuit);
+    result.push_back(SolidObstacle::box(glm::translate(bay,{1.23f,0,.65f}),{.30f,.26f}));
+    for(float z:{-.15f,1.48f})result.push_back(SolidObstacle::circle(glm::vec3(bay*glm::vec4(1.24f,0,z,1)),.08f));
+    for(float z:{-1.9f,1.9f})result.push_back(SolidObstacle::circle(glm::vec3(bay*glm::vec4(1.58f,0,z,1)),.09f));
+    // The final light is ceiling-mounted above the parking bay, not a pole.
+    for(size_t i=0;i+1<lights.locations().size();++i)
+        result.push_back(SolidObstacle::circle(glm::vec3(lights.locations()[i]),.12f));
+    for(const auto& p:forestRoots)result.push_back(SolidObstacle::circle(p,.30f));
+    for(const auto& p:vegetationRoots)result.push_back(SolidObstacle::circle(p,.22f));
+    for(glm::vec2 p:std::vector<glm::vec2>{{-30,29},{-15,23},{17,24},{34,28},{-48,24},{48,23},{2,18}})
+        result.push_back(SolidObstacle::circle(safeSolidTreeRoot(p.x,p.y),.34f));
+    for(const auto& p:islandPandanusPositions())result.push_back(SolidObstacle::circle(safeSolidTreeRoot(p.x,p.z),.30f));
+    for(const auto& p:islandBananaPositions())result.push_back(SolidObstacle::circle(safeSolidTreeRoot(p.x,p.z),.22f));
+    glm::mat4 house=glm::rotate(glm::translate(glm::mat4(1),glm::vec3(-24,0,10)),glm::radians(15.0f),glm::vec3(0,1,0));
+    result.push_back(SolidObstacle::box(house,{4.15f,2.8f}));
+    result.push_back(SolidObstacle::box(glm::translate(house,{-5.35f,0,1.4f}),{1.6f,.65f}));
+    result.push_back(SolidObstacle::box(glm::translate(house,{5.1f,0,-1.2f}),{1.55f,.60f}));
+    return result;
+}
+inline bool beachCircuitSolidsClear(const BeachCircuit& circuit) {
+    for(float d=0;d<circuit.length;d+=.2f){float heading;auto p=circuit.sample(d,&heading);if(!atvSolidsClear(p,heading))return false;}return true;
+}
 
 #endif // BEACH_DAY_SCENE_H

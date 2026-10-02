@@ -2,6 +2,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <cstdlib>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
@@ -31,6 +32,10 @@ float g_daySpeed      = 0.35f;   // Hours per second
 bool  g_dayPaused     = false;
 LighthouseBeamState g_lighthouseBeam;
 DayCyclePanel g_dayPanel;
+ObjectGuideState g_objectGuide;
+bool g_showDiagnostics=false;
+bool g_vsync=true;
+std::string g_gpuRenderer;
 
 // 2. Texture Mapping & Visual Overrides
 bool  g_useTextures   = true;    // [X] to toggle procedural texture mapping
@@ -43,6 +48,7 @@ float g_robotHeadYaw     = 15.0f;
 float g_robotLeftArm     = -20.0f;
 float g_robotRightArm    = 30.0f;
 float g_umbrellaTilt     = 14.0f;
+UmbrellaAnimationState g_umbrellaAnimation;
 float g_palmTrunkCurve   = 3.2f;
 
 // 4. Interactive Robot Motorboat Driving Simulation
@@ -73,8 +79,10 @@ std::vector<glm::vec4> g_wakeTrail; // X, Z, creation time, speed
 bool g_boatPilotMode = false; // [F] toggles interactive third-person pilot mode
 
 BeachATVState g_atvState;
+ATVBatteryState g_atvBattery;
 BeachCircuit g_beachCircuit;
 bool g_atvDriveMode = false; // [H] toggles beach-ring ATV driving
+BeachRobotState g_beachRobot;
 bool g_atvFirstPerson = false;
 float g_atvLookYaw = 0.0f, g_atvLookPitch = 0.0f, g_atvCameraDistance = 5.5f;
 
@@ -114,6 +122,11 @@ int main()
     }
 
     glfwMakeContextCurrent(window);
+    char* vsyncSetting=nullptr;size_t vsyncLength=0;
+    _dupenv_s(&vsyncSetting,&vsyncLength,"BEACHDAY_VSYNC");
+    g_vsync=!(vsyncSetting && std::string(vsyncSetting)=="0");
+    std::free(vsyncSetting);
+    glfwSwapInterval(g_vsync?1:0);
 
     // Register Callbacks
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
@@ -121,7 +134,7 @@ int main()
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetWindowFocusCallback(window,[](GLFWwindow*,int focused){
-        if(!focused){g_dayPanel.cancel();camera.isDraggingOrbit=false;camera.isDraggingPan=false;}
+        if(!focused){g_dayPanel.cancel();g_objectGuide.capturedButton=-1;camera.isDraggingOrbit=false;camera.isDraggingPan=false;}
     });
 
     // 3. Load GLAD Function Pointers
@@ -147,7 +160,7 @@ int main()
     std::cout << "    Day-speed panel    : Drag slider, scroll over panel, or click Pause/Play\n";
     std::cout << "    [J] / [F5]         : Instant jump to SUNRISE (06:30)\n";
     std::cout << "    [K] / [F6]         : Instant jump to MIDDAY NOON (12:00)\n";
-    std::cout << "    [L] / [F7]         : Instant jump to SUNSET (18:15)\n";
+    std::cout << "    [F7]               : Instant jump to SUNSET (18:15)\n";
     std::cout << "    [N] / [F8]         : Instant jump to TWILIGHT / NIGHT (21:30)\n";
     std::cout << "\n";
     std::cout << "  Shading & Graphics Techniques:\n";
@@ -162,6 +175,7 @@ int main()
     std::cout << "    [T] / [6]          : Focus on HILLTOP LIGHTHOUSE\n";
     std::cout << "    [C] / [7]          : Focus on CENTER ROBOT & UMBRELLA\n";
     std::cout << "    [P] / [8]          : Focus on PALM TREES & COASTAL ROCKS\n";
+    std::cout << "    [Y]                : Focus on RAISED TROPICAL STILT HOUSE (Thatch & Bamboo)\n";
     std::cout << "    [O] / [R]          : Full Scenic Beach Panorama Overview\n";
     std::cout << "    [TAB]              : Tour / Cycle through every object one-by-one\n";
     std::cout << "\n";
@@ -171,12 +185,19 @@ int main()
     std::cout << "    [DOWN] / [S]       : Throttle Reverse / Brake\n";
     std::cout << "    [LEFT] / [A]       : Steer Port (Left) - Robot steers wheel & glances left\n";
     std::cout << "    [RIGHT] / [D]      : Steer Starboard (Right) - Robot steers wheel & glances right\n";
+    std::cout << "\n  Beach ATV Driving (default: behind vehicle):\n";
+    std::cout << "    [Q]                : Connect charger when parked beside it / Disconnect\n";
     std::cout << "    [H]                : Ride the robot's 4x4 ATV (WASD / arrows)\n";
     std::cout << "    [U]                : Start / stop a complete island-perimeter tour\n";
     std::cout << "    [E]                : Toggle ATV chase / rider-eye camera\n";
     std::cout << "    Left mouse drag    : Look around while riding; scroll adjusts chase distance\n";
     std::cout << "\n";
     std::cout << "  Beach Resort Interactive Parameters:\n";
+    std::cout << "    [F1]               : Show / hide object instruction sidebar (click sections; scroll)\n";
+    std::cout << "    [F2]               : FPS / frame time / actual GPU renderer\n";
+    std::cout << "    [ENTER]            : Control standing beach robot / Return to free camera\n";
+    std::cout << "    [W/S] [A/D]        : Walk forward/backward and turn along dry beach path\n";
+    std::cout << "    [I]                : Open / close umbrella (works from any view)\n";
     std::cout << "    [1 / 2]            : Turn Beach Resort Robot Head Left / Right\n";
     std::cout << "    [3 / 4]            : Adjust Umbrella Tilt Angle\n";
     std::cout << "=======================================================================\n";
@@ -203,7 +224,10 @@ int main()
     FrustumMesh wheelCylinderMesh(0.5f, 0.5f, 32);
     FrustumMesh lighthouseTowerMesh(0.5f, 0.34f, 40);
     FrustumMesh lighthouseRoofMesh(0.55f, 0.0f, 40);
-    FrustumMesh lighthouseBeamMesh(0.5f, 0.0f, 48, false);
+    FrustumMesh lighthouseBeamMesh(0.5f,LighthouseLanternDimensions::beamTipRadius,48,false);
+    PrismMesh prismMesh;
+    FrustumMesh stiltCylinderMesh(0.5f, 0.5f, 24);
+    FrustumMesh stiltConeMesh(0.5f, 0.0f, 24);
     LighthouseSite lighthouseSite;
     std::cout<<"[Lighthouse] Grounded summit foundation active; base height "<<lighthouseSite.baseHeight()<<" m.\n";
 
@@ -214,6 +238,12 @@ int main()
     const auto beachChairs=safeBeachChairPlacements();
     IslandNightLights nightLights(g_beachCircuit);
     IslandVegetation tropicalVegetation(g_beachCircuit);
+    IslandForestBatches forestBatches;forestBatches.init(shaderProgram,islandTerrainMesh,cubeMesh,sphereMesh);
+    forestBatches.update(shaderProgram,cubeMesh,sphereMesh,0);
+    g_atvObstacles=islandSolidObstacles(g_beachCircuit,beachChairs,nightLights,forestBatches.roots(),tropicalVegetation.woodyRoots());
+    std::cout<<"[ATV] "<<g_atvObstacles.size()<<" solid obstacles; perimeter route "<<(beachCircuitSolidsClear(g_beachCircuit)?"clear":"OBSTRUCTED - tour will stop safely")<<std::endl;
+    g_gpuRenderer=reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+    std::cout<<"[GPU] "<<g_gpuRenderer<<" | VSync "<<(g_vsync?"on":"off")<<" | F1 object guide | F2 diagnostics"<<std::endl;
     std::cout<<"[Island] Added "<<tropicalVegetation.palmCount()<<" palms, "<<tropicalVegetation.broadleafCount()<<" broadleaf trees, "<<tropicalVegetation.understoryCount()<<" tropical plants, "<<tropicalVegetation.fernCount()<<" ferns, "<<tropicalVegetation.flowerCount()<<" flowering shrubs, "<<tropicalVegetation.grassCount()<<" grass clumps and "<<nightLights.count()<<" night lights.\n";
     int initialWidth,initialHeight;glfwGetWindowSize(window,&initialWidth,&initialHeight);g_dayPanel.layout(initialWidth,initialHeight);
     camera.realisticNavigation = true;
@@ -230,13 +260,26 @@ int main()
     {
         // Timing
         float currentFrame = (float)glfwGetTime();
+        float realElapsed=glm::max(0.f,currentFrame-lastFrame);
         float atvElapsed = glm::clamp(currentFrame - lastFrame, 0.0f, 0.25f);
         deltaTime = glm::clamp(currentFrame - lastFrame, 0.0f, 0.05f);
         lastFrame = currentFrame;
 
         // Process Input & Camera
         processInput(window);
-        if (g_atvDriveMode)
+        g_umbrellaAnimation.update(realElapsed);
+        const float umbrellaOpening=g_umbrellaAnimation.openAmount;
+        float robotWalk=0,robotTurn=0;
+        if(g_beachRobot.active){
+            robotWalk=(glfwGetKey(window,GLFW_KEY_W)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_UP)==GLFW_PRESS)?1.f:0.f;
+            if(glfwGetKey(window,GLFW_KEY_S)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_DOWN)==GLFW_PRESS)robotWalk-=1;
+            if(glfwGetKey(window,GLFW_KEY_A)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_LEFT)==GLFW_PRESS)robotTurn-=1;
+            if(glfwGetKey(window,GLFW_KEY_D)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_RIGHT)==GLFW_PRESS)robotTurn+=1;
+        }
+        updateBeachRobot(g_beachRobot,robotWalk,robotTurn,realElapsed,g_atvObstacles,&g_atvState);
+        if(!g_atvObstacles.empty())g_atvObstacles[0]=SolidObstacle::circle(g_beachRobot.pos,.46f);
+        const BeachRobotPose walkingRobotPose=beachRobotPose(g_beachRobot);
+        if (g_atvDriveMode || g_atvBattery.charging)
         {
             float throttle = 0.0f, steer = 0.0f;
             if (glfwGetKey(window,GLFW_KEY_W)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_UP)==GLFW_PRESS) throttle+=1;
@@ -244,14 +287,23 @@ int main()
             if (glfwGetKey(window,GLFW_KEY_A)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_LEFT)==GLFW_PRESS) steer-=1;
             if (glfwGetKey(window,GLFW_KEY_D)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_RIGHT)==GLFW_PRESS) steer+=1;
             int completed = g_atvState.completedTours;
-            updateBeachATV(g_atvState,g_beachCircuit,throttle,steer,atvElapsed,
+            updatePoweredBeachATV(g_atvState,g_atvBattery,g_beachCircuit,throttle,steer,realElapsed,
                            glfwGetKey(window,GLFW_KEY_SPACE)==GLFW_PRESS);
             if(g_atvState.completedTours>completed)
                 std::cout << "[ATV] Full island circuit completed. Back at the start.\n";
         }
         camera.riderViewActive = g_atvDriveMode && g_atvFirstPerson;
         atvTracks.update(g_atvState);
-        if (g_boatPilotMode)
+        if(g_beachRobot.active)
+        {
+            camera.isTransitioning=false;camera.currentPresetIndex=-1;
+            camera.target=glm::mix(camera.target,g_beachRobot.pos+glm::vec3(0,1.05f,0),1-expf(-8*atvElapsed));
+            float difference=std::remainder(180+g_beachRobot.heading-camera.yaw,360.f);
+            camera.yaw+=difference*(1-expf(-7*atvElapsed));
+            camera.pitch=glm::mix(camera.pitch,14.f,1-expf(-6*atvElapsed));
+            camera.distance=glm::mix(camera.distance,5.f,1-expf(-6*atvElapsed));
+        }
+        else if (g_boatPilotMode)
         {
             // Dynamic Third-Person Chase Camera behind the Robot's Motorboat
             camera.isTransitioning = false;
@@ -391,15 +443,15 @@ int main()
         // ====================================================================
         shaderProgram.Activate();
 
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram.ID, "view"), 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram.ID, "proj"), 1, GL_FALSE, glm::value_ptr(proj));
-        glUniform3fv(glGetUniformLocation(shaderProgram.ID, "viewPos"), 1, glm::value_ptr(camPos));
-        glUniform3fv(glGetUniformLocation(shaderProgram.ID, "lightDir"), 1, glm::value_ptr(lightDir));
-        glUniform3fv(glGetUniformLocation(shaderProgram.ID, "lightColor"), 1, glm::value_ptr(sunLightColor));
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "ambientStrength"), ambientStrength);
-        glUniform1i(glGetUniformLocation(shaderProgram.ID, "isShadowPass"), 0);
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "objectAlpha"), 1.0f);
-        glUniform1i(glGetUniformLocation(shaderProgram.ID, "beaconBeamPass"), 0);
+        glUniformMatrix4fv(shaderProgram.location("view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(shaderProgram.location("proj"), 1, GL_FALSE, glm::value_ptr(proj));
+        glUniform3fv(shaderProgram.location("viewPos"), 1, glm::value_ptr(camPos));
+        glUniform3fv(shaderProgram.location("lightDir"), 1, glm::value_ptr(lightDir));
+        glUniform3fv(shaderProgram.location("lightColor"), 1, glm::value_ptr(sunLightColor));
+        glUniform1f(shaderProgram.location("ambientStrength"), ambientStrength);
+        glUniform1i(shaderProgram.location("isShadowPass"), 0);
+        glUniform1f(shaderProgram.location("objectAlpha"), 1.0f);
+        glUniform1i(shaderProgram.location("beaconBeamPass"), 0);
 
         // ====================================================================
         // ENVIRONMENTAL SIMULATION DYNAMICS
@@ -408,13 +460,14 @@ int main()
         nightLights.bind(shaderProgram,g_dayTime);
         nightLights.bind(waterShader,g_dayTime);
         shaderProgram.Activate();
-        glUniform1i(glGetUniformLocation(shaderProgram.ID,"forceShadingMode"),g_shadingMode);
+        glUniform1i(shaderProgram.location("forceShadingMode"),g_shadingMode);
         waterShader.Activate();
-        glUniform1i(glGetUniformLocation(waterShader.ID,"forceShadingMode"),g_shadingMode);
+        glUniform1i(waterShader.location("forceShadingMode"),g_shadingMode);
         shaderProgram.Activate();
 
         // B. Wind Swaying: palm leaves & umbrella gently sway in sea breeze
         float windSway = sinf(currentFrame * 2.2f) * 1.6f + cosf(currentFrame * 1.1f) * 0.8f;
+        forestBatches.update(shaderProgram,cubeMesh,sphereMesh,windSway);
         float dynamicUmbrellaTilt = g_umbrellaTilt + sinf(currentFrame * .6f) * .4f;
 
         // ATV movement runs before the camera so the rider view uses this frame's pose.
@@ -557,7 +610,8 @@ int main()
 
         // Transforms for Main Beach Objects
         glm::mat4 chairMat1=beachChairTransform(beachChairs[0]);
-        glm::mat4 robotMat1=glm::translate(chairMat1,glm::vec3(0,.62f,.05f));
+        glm::mat4 robotMat1=seatedBeachRobotTransform(chairMat1);
+        const RobotLegPose seatedLegs=seatedBeachRobotLegs();
         float umbrellaX=beachChairs[0].x-1.6f,umbrellaZ=beachChairs[0].z-1.2f;
         glm::mat4 umbrellaMat1=glm::translate(glm::mat4(1),glm::vec3(umbrellaX,getCoastalTerrainElevation(umbrellaX,umbrellaZ),umbrellaZ));
 
@@ -607,6 +661,14 @@ int main()
         glm::mat4 centerDunePalm = glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, getCoastalTerrainElevation(2.0f, 18.0f), 18.0f));
         centerDunePalm = glm::rotate(centerDunePalm, glm::radians(88.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         centerDunePalm = glm::scale(centerDunePalm, glm::vec3(1.25f));
+        for(glm::mat4* palm:{&leftPalmMat,&backLeftPalm,&backRightPalm,&rightPalmMat,&farLeftPalm,&farRightPalm,&centerDunePalm})
+            (*palm)[3]=glm::vec4(safeSolidTreeRoot((*palm)[3].x,(*palm)[3].z),1);
+
+        // Tropical Raised Stilt House Transform (on gentle dune slope, facing ocean)
+        const float houseX = -24.0f;
+        const float houseZ = 10.0f;
+        glm::mat4 stiltHouseMat = glm::translate(glm::mat4(1.0f), glm::vec3(houseX, getCoastalTerrainElevation(houseX, houseZ), houseZ));
+        stiltHouseMat = glm::rotate(stiltHouseMat, glm::radians(15.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
         // Beach utility vehicle and lighthouse landmark.
         glm::mat4 fourWDMat = beachATVTransform(g_atvState);
@@ -633,8 +695,8 @@ int main()
         // Complete bounded island: submerged shelf, irregular beach ring, and
         // terrain rising gradually toward the central hill.
         auto renderOpaqueScene=[&]() {
-        drawIslandTerrainBackdrop(shaderProgram, islandTerrainMesh, cubeMesh, sphereMesh,&texManager,g_useTextures);
-        drawBackgroundPalmForest(shaderProgram, cubeMesh, sphereMesh, windSway, &texManager, g_useTextures);
+        drawIslandTerrainBackdrop(shaderProgram, islandTerrainMesh, cubeMesh, sphereMesh,&texManager,g_useTextures,false);
+        forestBatches.draw(shaderProgram,texManager,g_useTextures);
         tropicalVegetation.draw(shaderProgram,currentFrame);
         nightLights.draw(shaderProgram,cubeMesh,sphereMesh,g_dayTime);
 
@@ -657,38 +719,17 @@ int main()
 
         // Distinct tropical species: broad banana leaves and spiky pandanus
         // crowns break up the repeated coconut-palm silhouette.
-        const glm::vec3 bananaPositions[] = {
-            glm::vec3(-9.0f, 0.0f, -18.0f), glm::vec3(17.0f, 0.0f, -25.0f),
-            glm::vec3(-25.0f, 0.0f, -36.0f), glm::vec3(7.0f, 0.0f, -48.0f),
-            glm::vec3(-48.0f, 0.0f, -72.0f), glm::vec3(43.0f, 0.0f, -80.0f),
-            glm::vec3(-55.0f, 0.0f, -113.0f), glm::vec3(52.0f, 0.0f, -126.0f),
-            glm::vec3(-37.0f, 0.0f, -158.0f), glm::vec3(31.0f, 0.0f, -181.0f),
-            glm::vec3(-18.0f, 0.0f, 15.0f), glm::vec3(22.0f, 0.0f, 16.0f),
-            glm::vec3(-38.0f, 0.0f, 20.0f), glm::vec3(39.0f, 0.0f, 19.0f),
-            glm::vec3(-60.0f, 0.0f, -45.0f), glm::vec3(62.0f, 0.0f, -40.0f),
-            glm::vec3(-15.0f, 0.0f, -210.0f), glm::vec3(18.0f, 0.0f, -205.0f)
-        };
-        for (const glm::vec3& p : bananaPositions)
+        for (const glm::vec3& p : islandBananaPositions())
         {
             glm::mat4 plant = glm::translate(glm::mat4(1.0f),
-                glm::vec3(p.x, getCoastalTerrainElevation(p.x, p.z), p.z));
+                safeSolidTreeRoot(p.x,p.z));
             drawBananaPlant(shaderProgram, cubeMesh, plant, windSway);
         }
 
-        const glm::vec3 pandanusPositions[] = {
-            glm::vec3(28.0f, 0.0f, -20.0f), glm::vec3(-20.0f, 0.0f, -47.0f),
-            glm::vec3(19.0f, 0.0f, -61.0f), glm::vec3(-31.0f, 0.0f, -70.0f),
-            glm::vec3(61.0f, 0.0f, -54.0f), glm::vec3(-62.0f, 0.0f, -91.0f),
-            glm::vec3(60.0f, 0.0f, -111.0f), glm::vec3(-53.0f, 0.0f, -139.0f),
-            glm::vec3(44.0f, 0.0f, -166.0f), glm::vec3(-24.0f, 0.0f, -196.0f),
-            glm::vec3(-52.0f, 0.0f, 14.0f), glm::vec3(54.0f, 0.0f, 12.0f),
-            glm::vec3(-5.0f, 0.0f, 22.0f), glm::vec3(8.0f, 0.0f, 21.0f),
-            glm::vec3(-70.0f, 0.0f, -120.0f), glm::vec3(68.0f, 0.0f, -135.0f)
-        };
-        for (const glm::vec3& p : pandanusPositions)
+        for (const glm::vec3& p : islandPandanusPositions())
         {
             glm::mat4 tree = glm::translate(glm::mat4(1.0f),
-                glm::vec3(p.x, getCoastalTerrainElevation(p.x, p.z), p.z));
+                safeSolidTreeRoot(p.x,p.z));
             drawPandanusTree(shaderProgram, cubeMesh, tree, windSway);
         }
 
@@ -700,17 +741,24 @@ int main()
         drawBeachChair(shaderProgram, cubeMesh, chairMat1);
         for (size_t i=1;i<beachChairs.size();++i)
             drawBeachChair(shaderProgram,cubeMesh,beachChairTransform(beachChairs[i]));
-        drawRobot(shaderProgram, cubeMesh, sphereMesh, robotMat1, g_robotHeadYaw, -5.0f, g_robotLeftArm, g_robotRightArm, 82.0f);
-        drawUmbrella(shaderProgram, cubeMesh, sphereMesh, canopyGoreMesh, umbrellaMat1, dynamicUmbrellaTilt, 3.4f, 1.0f);
+        drawRobot(shaderProgram, cubeMesh, sphereMesh, robotMat1, g_robotHeadYaw, -5.0f, g_robotLeftArm, g_robotRightArm, 0,.16f,&seatedLegs);
+        drawRobot(shaderProgram,cubeMesh,sphereMesh,walkingRobotPose.transform,0,0,
+            walkingRobotPose.leftArm,walkingRobotPose.rightArm,0,.16f,&walkingRobotPose.legs);
+        drawUmbrella(shaderProgram, cubeMesh, sphereMesh, canopyGoreMesh, umbrellaMat1, dynamicUmbrellaTilt, 3.4f, 1.0f,umbrellaOpening);
 
         // 8B. Island transport and navigation landmark
         drawBeach4WD(shaderProgram, cubeMesh, sphereMesh, wheelCylinderMesh, fourWDMat,
                      g_atvState.wheelSpin, g_atvState.steering, g_atvLookYaw,true,
                      g_atvState.bodyPitch,g_atvState.bodyRoll);
-        drawATVChargingStation(shaderProgram,cubeMesh,wheelCylinderMesh,chargingStationMat);
+        drawATVChargingStation(shaderProgram,cubeMesh,wheelCylinderMesh,chargingStationMat,g_atvBattery.charging,g_atvBattery.percent,
+            glm::vec3(fourWDMat*glm::vec4(.48f,.9f,-.5f,1)));
         lighthouseSite.draw(shaderProgram);
         drawLighthouse(shaderProgram, cubeMesh, sphereMesh, lighthouseTowerMesh,
-                       wheelCylinderMesh, lighthouseRoofMesh, lighthouseMat, currentFrame);
+                       wheelCylinderMesh, lighthouseRoofMesh, lighthouseMat, currentFrame,lighthouseNightIntensity);
+
+        // 8C. Raised Tropical Stilt House
+        drawTropicalStiltHouse(shaderProgram, cubeMesh, sphereMesh, stiltCylinderMesh,
+                               stiltConeMesh, prismMesh, stiltHouseMat);
 
         // 9. Realistic High-Performance Motorboat Piloted by Articulated Robot + Distant Fleet
         drawRealisticMotorboat(shaderProgram, cubeMesh, sphereMesh, boatMat1,
@@ -732,17 +780,18 @@ int main()
         sunShadows.bind(waterShader,shadowsActive);
         shaderProgram.Activate();
 
-        // The rotating lighthouse beam is rendered after opaque geometry so
-        // additive blending produces a visible atmospheric shaft at night.
-        drawLighthouseBeacon(shaderProgram, lighthouseBeamMesh, lighthouseMat,
-                             currentFrame, lighthouseNightIntensity,g_lighthouseBeam.heading,g_lighthouseBeam.elevation);
-
         // 10. Realistic Gerstner Ocean Wave Surface (Semi-Transparent Water with Breaking Crest Foam + Boat Wake)
         drawOceanWaves(waterShader, waterMesh, view, proj, camPos, lightDir, sunLightColor, ambientStrength, currentFrame,
                        &texManager, g_useTextures,
                        g_boatState.pos, g_boatState.heading, g_boatState.speed,
                        glm::vec4(boat2Position.x,boat2Position.z,boat2Heading,1.30f),
-                       glm::vec4(boat3Position.x,boat3Position.z,boat3Heading,1.15f), g_wakeTrail);
+                       glm::vec4(boat3Position.x,boat3Position.z,boat3Heading,1.15f), g_wakeTrail,
+                       {boatMat1,boatMat2,boatMat3});
+        // Transparent lighthouse effects follow water and opaque geometry.
+        shaderProgram.Activate();
+        drawLighthouseBeacon(shaderProgram,lighthouseBeamMesh,lighthouseMat,
+            currentFrame,lighthouseNightIntensity,g_lighthouseBeam.heading,g_lighthouseBeam.elevation);
+        drawLighthouseGlass(shaderProgram,cubeMesh,lighthouseMat,camPos,lighthouseNightIntensity);
 
         // ====================================================================
         // DYNAMIC HUD / TITLE BAR UPDATE
@@ -804,7 +853,40 @@ int main()
 
         // Swap Buffers and Poll Events
         int panelWidth,panelHeight;glfwGetWindowSize(window,&panelWidth,&panelHeight);
-        if(panelWidth>0 && panelHeight>0)g_dayPanel.draw(panelWidth,panelHeight,g_daySpeed,g_dayPaused);
+        static double hudSample=-1;static int hudFrames=0;static float hudFps=0,hudMs=0;
+        if(hudSample<0)hudSample=currentFrame;
+        ++hudFrames;if(currentFrame-hudSample>=.5){hudMs=1000*(currentFrame-hudSample)/hudFrames;hudFps=1000/hudMs;hudFrames=0;hudSample=currentFrame;}
+        std::vector<std::string> hud;
+        std::ostringstream status;status<<std::fixed<<std::setprecision(1);
+        if(g_atvDriveMode){status<<"ATV "<<fabsf(g_atvState.speed)*3.6f<<" KM/H - "<<(g_atvState.touring?"TOUR ":"MANUAL ");
+            if(g_atvState.touring)status<<(int)(100*g_atvState.tourTravelled/g_beachCircuit.length)<<"% ";
+            status<<(g_atvFirstPerson?"RIDER":"CHASE");hud.push_back(status.str());hud.push_back("WASD/ARROWS DRIVE  SPACE BRAKE  U TOUR  E VIEW  H EXIT");}
+        else if(g_boatPilotMode){status<<"BOAT "<<fabsf(g_boatState.speed)<<" M/S";hud.push_back(status.str());hud.push_back("WASD/ARROWS DRIVE  F EXIT");}
+        else if(g_beachRobot.active){status<<"ROBOT "<<fabsf(g_beachRobot.speed)<<" M/S - "<<(g_beachRobot.blocked?"PATH BLOCKED":fabsf(g_beachRobot.speed)>.05f?"WALKING":"STANDING");
+            hud.push_back(status.str());hud.push_back("W/S WALK  A/D TURN  ENTER EXIT - STAY ON BEACH PATH");}
+        else hud.push_back("ENTER WALK ROBOT  H ATV  F BOAT  F1 GUIDE  F2 STATS");
+        hud.push_back(std::string("I OPEN/CLOSE UMBRELLA - ")+g_umbrellaAnimation.label());
+        if(g_atvDriveMode || g_atvBattery.charging){
+            std::ostringstream charge;charge<<std::fixed<<std::setprecision(1)<<"BATTERY "<<g_atvBattery.percent<<"%";
+            if(g_atvBattery.charging)charge<<(g_atvBattery.percent>=100?" FULL - Q DISCONNECT":" CHARGING - Q DISCONNECT");
+            else if(!g_atvBattery.hasPower())charge<<" EMPTY - MOTOR OFF";
+            hud.push_back(charge.str());
+            if(!g_atvBattery.charging && canConnectATVCharger(g_atvState,g_beachCircuit))hud.push_back("Q CONNECT CHARGER");
+            else if(!g_atvBattery.charging){std::ostringstream distance;distance<<"CHARGER "<<(int)atvChargerDistance(g_atvState,g_beachCircuit)<<" M - PARK BESIDE CHARGER THEN Q";hud.push_back(distance.str());}
+        }
+        if(g_atvDriveMode && g_atvState.blocked)hud.push_back("OBSTACLE - STOPPED SAFELY - REVERSE TO CLEAR");
+        if(g_showDiagnostics){std::ostringstream stats;stats<<std::fixed<<std::setprecision(1);
+            if(hudFps>0)stats<<"FPS "<<hudFps<<"  FRAME "<<hudMs<<" MS";else stats<<"FPS WARMING UP";
+            stats<<"  VSYNC "<<(g_vsync?"ON":"OFF");hud.push_back(stats.str());hud.push_back("GPU: "+g_gpuRenderer);}
+        int guideContext=g_beachRobot.active?GUIDE_WALKING:g_atvDriveMode||g_atvBattery.charging?GUIDE_ATV:g_boatPilotMode?GUIDE_BOAT:GUIDE_CAMERA;
+        if(!g_beachRobot.active&&!g_atvDriveMode&&!g_atvBattery.charging&&!g_boatPilotMode){
+            if(camera.currentPresetIndex==VIEW_TOWER)guideContext=GUIDE_LIGHTHOUSE;
+            else if(camera.currentPresetIndex==VIEW_BOAT)guideContext=GUIDE_BOAT;
+            else if(camera.currentPresetIndex==VIEW_ROBOT)guideContext=GUIDE_SEATED;
+            else if(camera.currentPresetIndex>=VIEW_PALM_ROCKS&&camera.currentPresetIndex<=VIEW_STILT_HOUSE)guideContext=GUIDE_ENVIRONMENT;
+        }
+        g_objectGuide.observe(guideContext);
+        if(panelWidth>0 && panelHeight>0)g_dayPanel.draw(panelWidth,panelHeight,g_daySpeed,g_dayPaused,hud,&g_objectGuide);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
@@ -817,6 +899,7 @@ int main()
     atvTracks.cleanup();
     sunShadows.cleanup();
     tropicalVegetation.cleanup();
+    forestBatches.cleanup();
     cubeMesh.cleanup();
     sphereMesh.cleanup();
     canopyGoreMesh.cleanup();
@@ -828,6 +911,9 @@ int main()
     lighthouseTowerMesh.cleanup();
     lighthouseRoofMesh.cleanup();
     lighthouseBeamMesh.cleanup();
+    prismMesh.cleanup();
+    stiltCylinderMesh.cleanup();
+    stiltConeMesh.cleanup();
     lighthouseSite.cleanup();
     g_dayPanel.cleanup();
     skybox.cleanup();
@@ -845,6 +931,25 @@ int main()
 // ============================================================================
 void processInput(GLFWwindow* window)
 {
+    if(g_beachRobot.press(glfwGetKey(window,GLFW_KEY_ENTER)==GLFW_PRESS)){
+        if(g_beachRobot.active){g_atvDriveMode=false;g_boatPilotMode=false;g_atvState.touring=false;g_atvState.speed=0;
+            camera.isTransitioning=false;camera.currentPresetIndex=-1;
+            camera.target=g_beachRobot.pos+glm::vec3(0,1.05f,0);camera.yaw=180+g_beachRobot.heading;camera.pitch=14;camera.distance=5;}
+        std::cout<<"[Beach robot] "<<(g_beachRobot.active?"Walking controls: W/S forward/back, A/D turn, Enter exit.":"Free camera restored.")<<std::endl;
+    }
+    if(g_atvBattery.press(glfwGetKey(window,GLFW_KEY_Q)==GLFW_PRESS)){
+        if(g_atvBattery.charging){g_atvBattery.charging=false;std::cout<<"[ATV] Charger disconnected."<<std::endl;}
+        else if(g_atvDriveMode && canConnectATVCharger(g_atvState,g_beachCircuit)){
+            g_atvBattery.charging=true;g_atvState.speed=g_atvState.yawRate=0;g_atvState.touring=false;g_atvState.parked=true;
+            std::cout<<"[ATV] Charging connected. Q disconnects; driving locked while connected."<<std::endl;
+        }else std::cout<<"[ATV] Ride the ATV, stop beside the charger (within 2 m), then press Q."<<std::endl;
+    }
+    if(g_umbrellaAnimation.press(glfwGetKey(window,GLFW_KEY_I)==GLFW_PRESS))
+        std::cout<<"[Umbrella] "<<(g_umbrellaAnimation.targetOpen?"Opening":"Closing")<<std::endl;
+    static bool helpDown=false,statsDown=false;
+    bool help=glfwGetKey(window,GLFW_KEY_F1)==GLFW_PRESS,stats=glfwGetKey(window,GLFW_KEY_F2)==GLFW_PRESS;
+    if(help && !helpDown)g_objectGuide.toggle();if(stats && !statsDown)g_showDiagnostics=!g_showDiagnostics;
+    helpDown=help;statsDown=stats;
     static bool beamPausePressed=false,beamResetPressed=false;
     bool pause=glfwGetKey(window,GLFW_KEY_F9)==GLFW_PRESS;
     bool reset=glfwGetKey(window,GLFW_KEY_F10)==GLFW_PRESS;
@@ -1002,6 +1107,7 @@ void processInput(GLFWwindow* window)
         g_boatPilotMode = !g_boatPilotMode;
         if (g_boatPilotMode)
         {
+            g_beachRobot.active=false;g_beachRobot.speed=0;
             g_atvDriveMode = false;
             g_atvState.touring = false;
             g_atvState.speed = 0;
@@ -1031,6 +1137,7 @@ void processInput(GLFWwindow* window)
         g_atvDriveMode = !g_atvDriveMode;
         if (g_atvDriveMode)
         {
+            g_beachRobot.active=false;g_beachRobot.speed=0;
             g_boatPilotMode = false;
             camera.isTransitioning = false;
             camera.currentPresetIndex = -1;
@@ -1041,10 +1148,12 @@ void processInput(GLFWwindow* window)
             std::cout << "\n>>> [BEACH ATV DRIVE MODE: ACTIVATED] <<<\n";
             std::cout << "    [W/S] : Accelerate / Brake, then hold to reverse\n";
             std::cout << "    [Space]: Brake\n";
+            std::cout << "    [Q]   : Connect/disconnect near the charger (stop within 2 m)\n";
             std::cout << "    [A/D] : Steer around the beach ring\n";
             std::cout << "    [H]   : Exit ATV mode\n";
             std::cout << "    [U]   : Guided full-island round trip\n";
             std::cout << "    [E]   : Rider-eye / chase view; left-drag to look around\n";
+            std::cout << std::flush;
         }
         else
         {
@@ -1060,11 +1169,13 @@ void processInput(GLFWwindow* window)
     static bool uKeyPressed = false, eKeyPressed = false;
     if(glfwGetKey(window,GLFW_KEY_U)==GLFW_PRESS && !uKeyPressed)
     {
-        if(g_atvState.touring)
+        if(g_atvBattery.charging || !g_atvBattery.hasPower())
+            std::cout<<"[ATV] Tour unavailable: disconnect the charger and ensure battery has charge."<<std::endl;
+        else if(g_atvState.touring)
         {g_atvState.touring=false;g_atvState.speed=0;std::cout<<"[ATV] Island tour stopped.\n";}
         else
         {
-            g_atvDriveMode=true;g_boatPilotMode=false;
+            g_atvDriveMode=true;g_boatPilotMode=false;g_beachRobot.active=false;g_beachRobot.speed=0;
             camera.isTransitioning=false;camera.currentPresetIndex=-1;
             startBeachTour(g_atvState,g_beachCircuit);
             std::cout<<"[ATV] Full island-perimeter round trip started ("<<g_beachCircuit.length<<" m). WASD takes manual control.\n";
@@ -1129,6 +1240,15 @@ void processInput(GLFWwindow* window)
     if (glfwGetKey(window, GLFW_KEY_L) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_9) == GLFW_RELEASE)
         lCamPressed = false;
 
+    static bool yKeyPressed = false;
+    if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS && !yKeyPressed)
+    {
+        camera.setPreset(VIEW_STILT_HOUSE, window);
+        yKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_RELEASE)
+        yKeyPressed = false;
+
     static bool oKeyPressed = false;
     if ((glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS) && !oKeyPressed)
     {
@@ -1159,12 +1279,15 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
     int width,height;glfwGetWindowSize(window,&width,&height);g_dayPanel.layout(width,height);
+    g_objectGuide.layout(width,height);
+    if(g_objectGuide.mouse(button,action,xpos,ypos))return;
     if(g_dayPanel.mouse(button,action,xpos,ypos,g_daySpeed,g_dayPaused))return;
     camera.handleMouseButton(button, action, xpos, ypos);
 }
 
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 {
+    if(g_objectGuide.active()){camera.lastX=xpos;camera.lastY=ypos;return;}
     if(g_dayPanel.move(xpos,g_daySpeed)){camera.lastX=xpos;camera.lastY=ypos;return;}
     if(g_atvDriveMode)
     {
@@ -1183,6 +1306,8 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
     double x,y;glfwGetCursorPos(window,&x,&y);
     int width,height;glfwGetWindowSize(window,&width,&height);g_dayPanel.layout(width,height);
+    g_objectGuide.layout(width,height);
+    if(g_objectGuide.wheel(x,y,yoffset))return;
     if(g_dayPanel.active() || g_dayPanel.contains(x,y))
     {g_daySpeed=glm::clamp(g_daySpeed+(float)yoffset*.05f,.05f,4.0f);return;}
     if(g_atvDriveMode)

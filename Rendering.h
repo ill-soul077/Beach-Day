@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <stdexcept>
+#include <unordered_map>
 #include <glm/glm.hpp>
 
 // Embedded shaders: unchanged GLSL sources, separated into labelled constants.
@@ -15,6 +16,9 @@ layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTexCoord;
 layout (location = 3) in vec3 aPlantColor;
 layout (location = 4) in float aPlantWind;
+layout (location = 5) in mat4 instanceModel;
+layout (location = 9) in vec3 instanceColor;
+layout (location = 10) in vec3 instanceMaterial;
 
 out vec3 FragPos;
 out vec3 Normal;
@@ -45,11 +49,17 @@ uniform int terrainPalette;
 uniform float seaLevel;
 uniform int foliagePass;
 uniform float environmentTime;
+uniform int instancedPass;
+out vec3 InstanceColor;
+out vec3 InstanceMaterial;
 
 void main()
 {
     ObjectHeight=aPos.y;
-    vec3 world=vec3(model*vec4(aPos,1));
+    mat4 effectiveModel=instancedPass==1?instanceModel:model;
+    InstanceColor=instancedPass==1?instanceColor:objectColor;
+    InstanceMaterial=instancedPass==1?instanceMaterial:vec3(shininess,specularStrength,float(unlit));
+    vec3 world=vec3(effectiveModel*vec4(aPos,1));
     if(foliagePass==1)world.x+=sin(environmentTime*1.4+world.x*.22+world.z*.13)*aPlantWind*.09;
     PlantColor=aPlantColor;
     // Fast path for ground projected shadow pass (avoids singular matrix inversion)
@@ -68,7 +78,7 @@ void main()
     FragPos = world;
     
     // Normal matrix to prevent non-uniform scale distortion
-    mat3 normalMatrix = transpose(inverse(mat3(model)));
+    mat3 normalMatrix = transpose(inverse(mat3(effectiveModel)));
     Normal = normalize(normalMatrix * aNormal);
     
     TexCoord = aTexCoord;
@@ -76,7 +86,7 @@ void main()
     // GOURAUD SHADING: Compute lighting equation directly at vertex level
     int mode=forceShadingMode==0?shadingMode:(forceShadingMode==1?2:forceShadingMode==2?1:0);
     GouraudSpecular=vec3(0);
-    if (mode == 1 && unlit == 0)
+    if (mode == 1 && InstanceMaterial.z == 0)
     {
         vec3 ambient = ambientStrength * lightColor;
 
@@ -89,15 +99,15 @@ void main()
         vec3 viewDir = normalize(viewPos - FragPos);
         vec3 reflectDir = reflect(-lightDirection, norm);
         float wet=terrainPalette==1?1-smoothstep(seaLevel+.06,seaLevel+.55,FragPos.y):0;
-        float spec = pow(max(dot(viewDir, reflectDir), 0.0), mix(max(shininess, 1.0),72.0,wet));
-        vec3 specular = mix(specularStrength,.28,wet) * spec * lightColor;
+        float spec = pow(max(dot(viewDir, reflectDir), 0.0), mix(max(InstanceMaterial.x, 1.0),72.0,wet));
+        vec3 specular = mix(InstanceMaterial.y,.28,wet) * spec * lightColor;
 
         GouraudColor = ambient + diffuse;
         GouraudSpecular = specular;
     }
     else
     {
-        GouraudColor = objectColor;
+        GouraudColor = InstanceColor;
     }
     
     gl_Position = proj * view * vec4(FragPos, 1.0);
@@ -112,6 +122,8 @@ in vec3 GouraudColor;
 in vec3 GouraudSpecular;
 in vec3 PlantColor;
 in float ObjectHeight;
+in vec3 InstanceColor;
+in vec3 InstanceMaterial;
 
 out vec4 FragColor;
 
@@ -210,7 +222,7 @@ void main()
     }
 
     // Apply optional texture detail to base object color
-    vec3 baseColor = foliagePass==1?PlantColor:objectColor;
+    vec3 baseColor = foliagePass==1?PlantColor:InstanceColor;
     if(lighthouseShaftPass==1)
     {
         float height=ObjectHeight*14.0+7.0;
@@ -242,7 +254,7 @@ void main()
         *(1-smoothstep(10.0,18.0,islandSignedDistance(FragPos.xz))):0;
     baseColor*=mix(1.0,.70,wetSand);
 
-    if (unlit == 1)
+    if (InstanceMaterial.z == 1)
     {
         float alpha = objectAlpha;
         if (beaconBeamPass == 1)
@@ -312,8 +324,8 @@ void main()
     // 3. Specular Lighting (Phong)
     vec3 viewDir = normalize(viewPos - FragPos);
     vec3 reflectDir = reflect(-lightDirection, norm);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), mix(max(shininess,1.0),72.0,wetSand));
-    vec3 specular = mix(specularStrength,.28,wetSand) * spec * lightColor;
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), mix(max(InstanceMaterial.x,1.0),72.0,wetSand));
+    vec3 specular = mix(InstanceMaterial.y,.28,wetSand) * spec * lightColor;
 
     // Combine lighting components with base surface color
     // Dielectric highlights reflect the light color, not the pigment color.
@@ -569,6 +581,8 @@ float sunVisibility()
 // Boat interaction
 uniform float boatSpeed;
 uniform vec4 hulls[3]; // X, Z, compass heading, model scale
+uniform mat4 inverseHulls[3]; // Inverse of the actual pitched/rolled boat pose
+uniform int hullMaskEnabled;
 uniform vec4 wakeTrail[32]; // X, Z, birth time, speed
 uniform int wakeCount;
 
@@ -576,8 +590,59 @@ uniform int wakeCount;
 uniform sampler2D foamTex;
 uniform int useFoamTex;
 
+// Cross-section of BoatHullMesh, not a rectangular hole in the ocean. A
+// fragment inside the enclosed shell must not draw over the cockpit floor.
+bool insideHull(vec3 p,bool sail)
+{
+    float stern=sail?-1.74:-1.97,bow=sail?1.95:2.25;
+    if(p.z<=stern || p.z>=bow)return false;
+    float t=(p.z-stern)/(bow-stern),entry=pow(t,7.0);
+    float w=(sail?0.62:0.73)*(1.0-pow(t,3.4))+0.018;
+    float xs[7]=float[7](0.0,0.80,0.96,0.97,0.985,1.0,1.0);
+    float ys[7]=float[7](-0.32,-0.075,0.10,0.13,0.18,0.45,0.49);
+    float width=0.0;
+    for(int b=0;b<6;++b)
+    {
+        float lo=ys[b]+entry*(b<2?0.40:0.12);
+        float hi=ys[b+1]+entry*(b+1<2?0.40:0.12);
+        if(p.y>=min(lo,hi) && p.y<=max(lo,hi))
+            width=max(width,w*(abs(hi-lo)<0.000001?max(xs[b],xs[b+1]):mix(xs[b],xs[b+1],(p.y-lo)/(hi-lo))));
+    }
+    return abs(p.x)<width-0.002;
+}
+
+// Fine wake normals are evaluated per pixel: the far-reaching ocean mesh
+// cannot resolve metre-wide propeller wash with vertex displacement alone.
+float wakeGaussian(float x){return exp(-x*x);}
+float wakeHeight(vec2 p,out float influence)
+{
+    influence=0.0;
+    float speed=abs(boatSpeed);
+    if(speed<=0.2 || hulls[0].w<=0.0)return 0.0;
+    vec2 relative=p-hulls[0].xy;
+    if(dot(relative,relative)>6400.0)return 0.0;
+    float a=radians(hulls[0].z);
+    vec2 f=vec2(sin(a),cos(a))*sign(boatSpeed),r=vec2(cos(a),-sin(a));
+    float along=dot(relative,f),across=dot(relative,r);
+    float trailingEnd=(boatSpeed>0.0?1.97:2.25)*hulls[0].w;
+    float aft=-along-trailingEnd;
+    if(aft<0.0 || aft>65.0)return 0.0;
+    float arm=wakeGaussian((abs(across)-aft*0.354)/(0.55+aft*0.045));
+    float wash=wakeGaussian(across/(0.6+aft*0.045));
+    float strength=smoothstep(0.2,5.0,speed)*smoothstep(0.0,0.8,aft)*exp(-aft*0.055);
+    influence=strength*max(arm,wash);
+    return strength*(arm*sin(aft*2.4-time*3.4)*0.065
+                   +wash*sin(aft*5.0-time*7.0+sin(across*5.0))*0.035);
+}
+
 void main()
 {
+    if(hullMaskEnabled==1)
+    for(int i=0;i<3;++i)
+    {
+        if(hulls[i].w<=0.0 || distance(FragPos.xz,hulls[i].xy)>5.0*hulls[i].w)continue;
+        if(insideHull((inverseHulls[i]*vec4(FragPos,1)).xyz,i>0))discard;
+    }
     vec3 N = normalize(Normal);
     int mode=forceShadingMode==0?1:(forceShadingMode==1?2:forceShadingMode==2?1:0);
     if(mode==2){N=normalize(cross(dFdx(FragPos),dFdy(FragPos)));if(N.y<0)N=-N;}
@@ -587,6 +652,11 @@ void main()
     float rippleX = sin(dot(FragPos.xz, vec2(0.78, 0.31)) * 1.35 + time * 1.9);
     float rippleZ = sin(dot(FragPos.xz, vec2(-0.22, 0.91)) * 1.72 + time * 2.3);
     if(mode==0)N = normalize(N + vec3(rippleX * 0.018, 0.0, rippleZ * 0.018));
+    float wakeInfluence,unused;
+    float wake= wakeHeight(FragPos.xz,wakeInfluence);
+    float dx=(wakeHeight(FragPos.xz+vec2(0.08,0),unused)-wake)/0.08;
+    float dz=(wakeHeight(FragPos.xz+vec2(0,0.08),unused)-wake)/0.08;
+    N=normalize(N+vec3(-dx,0,-dz));
     vec3 V = normalize(viewPos - FragPos);
     vec3 L = normalize(lightDir);
     vec3 H = normalize(L + V);
@@ -625,7 +695,7 @@ void main()
     float NdotL = max(dot(N, L), 0.0);
     float NdotH = max(dot(N, H), 0.0);
     float spec = pow(NdotH, 160.0);
-    if(mode==1){NdotL=WaterLighting.x;spec=WaterLighting.y;}
+    if(mode==1){NdotL=mix(WaterLighting.x,NdotL,wakeInfluence);spec=mix(WaterLighting.y,spec,wakeInfluence);}
     vec3 specular = lightColor * spec * 1.45 * (0.25 + 0.75 * fresnel);
 
     // Diffuse / Ambient lighting
@@ -693,12 +763,16 @@ void main()
             float sideDistance=abs(across-(0.35+max(start-ahead,0.0)*0.25));
             float bowFoam=exp(-pow(sideDistance/0.22,2.0))*(1.0-smoothstep(0.5,2.6,abs(ahead-start+0.65)));
             wakeFoam=max(wakeFoam,bowFoam*clamp(speed/8.0,0.0,0.65));
-            float aft=max(-ahead-stern,0.0);
-            if(ahead < -stern && aft<42.0)
+            float trailingEnd=direction>0.0?stern:bow;
+            float aft=max(-ahead-trailingEnd,0.0);
+            if(ahead < -trailingEnd && aft<65.0)
             {
-                float arm=exp(-pow((across-aft*0.354)/(0.25+aft*0.025),2.0));
-                float ridge=0.5+0.5*sin(aft*1.8-speed*0.15);
-                wakeFoam=max(wakeFoam,arm*ridge*exp(-aft*0.08)*clamp(speed/10.0,0.0,0.18));
+                float arm=wakeGaussian((across-aft*0.354)/(0.50+aft*0.045));
+                float ridge=0.65+0.35*sin(aft*2.4-time*3.4);
+                float wash=wakeGaussian(across/(0.65+aft*0.05));
+                float turbulence=0.65+0.35*sin(along*7.0+time*4.0)*cos(across*9.0-time*2.0);
+                float strength=smoothstep(0.2,5.0,speed)*smoothstep(0.0,0.6,aft)*exp(-aft*0.065);
+                wakeFoam=max(wakeFoam,(arm*ridge*0.42+wash*turbulence*0.68)*strength);
             }
         }
     }
@@ -882,6 +956,13 @@ string get_file_contents(const char* filename);
 class Shader {
 public:
 	GLuint ID;
+	mutable std::unordered_map<std::string,GLint> uniformLocations;
+	GLint location(const char* name) const {
+	    auto found=uniformLocations.find(name);
+	    if(found!=uniformLocations.end())return found->second;
+	    GLint result=glGetUniformLocation(ID,name);
+	    uniformLocations.emplace(name,result);return result;
+	}
 	Shader(const char* vertexFile, const char* fragmentFile);
 
 	void Activate();
@@ -932,6 +1013,7 @@ inline void Shader::Activate() {
 
 inline void Shader::Delete() {
 	glDeleteProgram(ID);
+	uniformLocations.clear();ID=0;
 }
 
 // Checks if the different Shaders have compiled properly
@@ -1393,14 +1475,14 @@ public:
         glDepthMask(GL_FALSE); // Don't write to depth buffer so scene geometry renders on top
 
         shader.Activate();
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID, "view"), 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID, "proj"), 1, GL_FALSE, glm::value_ptr(proj));
-        glUniform3fv(glGetUniformLocation(shader.ID, "zenithColor"), 1, glm::value_ptr(zenithColor));
-        glUniform3fv(glGetUniformLocation(shader.ID, "horizonColor"), 1, glm::value_ptr(horizonColor));
-        glUniform3fv(glGetUniformLocation(shader.ID, "oceanHorizonColor"), 1, glm::value_ptr(oceanHorizonColor));
-        glUniform3fv(glGetUniformLocation(shader.ID, "sunDir"), 1, glm::value_ptr(sunDir));
-        glUniform3fv(glGetUniformLocation(shader.ID, "sunGlowColor"), 1, glm::value_ptr(sunGlowColor));
-        glUniform1f(glGetUniformLocation(shader.ID, "timeOfDay"), timeOfDay);
+        glUniformMatrix4fv(shader.location("view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(shader.location("proj"), 1, GL_FALSE, glm::value_ptr(proj));
+        glUniform3fv(shader.location("zenithColor"), 1, glm::value_ptr(zenithColor));
+        glUniform3fv(shader.location("horizonColor"), 1, glm::value_ptr(horizonColor));
+        glUniform3fv(shader.location("oceanHorizonColor"), 1, glm::value_ptr(oceanHorizonColor));
+        glUniform3fv(shader.location("sunDir"), 1, glm::value_ptr(sunDir));
+        glUniform3fv(shader.location("sunGlowColor"), 1, glm::value_ptr(sunGlowColor));
+        glUniform1f(shader.location("timeOfDay"), timeOfDay);
 
         glBindVertexArray(VAO);
         glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -1466,23 +1548,23 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,resolution,resolution);
         glClear(GL_DEPTH_BUFFER_BIT);glDisable(GL_BLEND);
         glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(1.5f,2.0f);
-        shader.Activate();glUniform1i(glGetUniformLocation(shader.ID,"shadowDepthPass"),1);
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"view"),1,GL_FALSE,glm::value_ptr(view));
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"proj"),1,GL_FALSE,glm::value_ptr(projection));
+        shader.Activate();glUniform1i(shader.location("shadowDepthPass"),1);
+        glUniformMatrix4fv(shader.location("view"),1,GL_FALSE,glm::value_ptr(view));
+        glUniformMatrix4fv(shader.location("proj"),1,GL_FALSE,glm::value_ptr(projection));
     }
     void end(Shader& shader,int width,int height,const glm::mat4& view,const glm::mat4& projection)
     {
         glDisable(GL_POLYGON_OFFSET_FILL);glBindFramebuffer(GL_FRAMEBUFFER,0);glViewport(0,0,width,height);
-        shader.Activate();glUniform1i(glGetUniformLocation(shader.ID,"shadowDepthPass"),0);
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"view"),1,GL_FALSE,glm::value_ptr(view));
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"proj"),1,GL_FALSE,glm::value_ptr(projection));
+        shader.Activate();glUniform1i(shader.location("shadowDepthPass"),0);
+        glUniformMatrix4fv(shader.location("view"),1,GL_FALSE,glm::value_ptr(view));
+        glUniformMatrix4fv(shader.location("proj"),1,GL_FALSE,glm::value_ptr(projection));
     }
     void bind(Shader& shader,bool enabled) const
     {
         shader.Activate();glActiveTexture(GL_TEXTURE3);glBindTexture(GL_TEXTURE_2D,depth);glActiveTexture(GL_TEXTURE0);
-        glUniform1i(glGetUniformLocation(shader.ID,"sunShadowMap"),3);
-        glUniform1i(glGetUniformLocation(shader.ID,"sunShadowsEnabled"),enabled);
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID,"sunShadowMatrix"),1,GL_FALSE,glm::value_ptr(matrix));
+        glUniform1i(shader.location("sunShadowMap"),3);
+        glUniform1i(shader.location("sunShadowsEnabled"),enabled);
+        glUniformMatrix4fv(shader.location("sunShadowMatrix"),1,GL_FALSE,glm::value_ptr(matrix));
     }
     void cleanup(){glDeleteTextures(1,&depth);glDeleteFramebuffers(1,&framebuffer);}
 };
@@ -1503,14 +1585,79 @@ public:
 
 // Lightweight screen-space controls, in GLFW logical pixels (HiDPI-safe).
 // Input is captured before the camera receives mouse events.
+enum ObjectGuideSection { GUIDE_SEATED,GUIDE_WALKING,GUIDE_UMBRELLA,GUIDE_BOAT,
+    GUIDE_ATV,GUIDE_LIGHTHOUSE,GUIDE_DAY,GUIDE_ENVIRONMENT,GUIDE_CAMERA };
+struct ObjectGuideEntry {std::string title;std::vector<std::string> instructions;};
+inline const std::vector<ObjectGuideEntry>& objectGuideEntries(){
+    static const std::vector<ObjectGuideEntry> entries={
+        {"SEATED ROBOT",{"C / 7 - FOCUS BEACH","1 / 2 - TURN HEAD","RESTING ON THE LOUNGER"}},
+        {"WALKING ROBOT",{"ENTER - CONTROL / EXIT","W / S - WALK / BACK","A / D - TURN; ARROWS TOO","FOLLOW THE DRY BEACH PATH","REVERSE OR TURN IF BLOCKED"}},
+        {"UMBRELLA",{"C - FOCUS BEACH","I - OPEN / CLOSE","3 / 4 - CHANGE POLE TILT","PRESS I AGAIN TO REVERSE","WORKS WHILE DAY IS PAUSED"}},
+        {"MOTORBOAT",{"B / 5 - FOCUS BOAT","F - PILOT / EXIT","W / S - THROTTLE / BRAKE","A / D - STEER; ARROWS TOO","MOVEMENT CREATES A WAKE"}},
+        {"ATV AND CHARGER",{"H - RIDE / EXIT","W / S - DRIVE / REVERSE","A / D - STEER; ARROWS TOO","SPACE - BRAKE","U - START / STOP TOUR","E - CHASE / RIDER VIEW","Q - CONNECT / DISCONNECT","STOP WITHIN 2 M OF CHARGER","STOP TOUR BEFORE CHARGING","DISCONNECT BEFORE DRIVING"}},
+        {"LIGHTHOUSE",{"T / 6 - FOCUS TOWER","F9 - PAUSE / RESUME SWEEP","F10 - RESET BEACON","COMMA / PERIOD - AIM","SEMICOLON / APOSTROPHE","CHANGE ROTATION SPEED","F11 / F12 - AIM UP / DOWN","MANUAL AIM PAUSES SWEEP","LIGHT TURNS ON AT NIGHT"}},
+        {"DAY AND LIGHTING",{"DRAG DAY SPEED SLIDER","CLICK PAUSE / PLAY","[ / ] - CHANGE DAY SPEED","SPACE - DAY PAUSE","OUTSIDE ATV DRIVING MODE","F5 / J - SUNRISE","F6 / K - MIDDAY","F7 - SUNSET; F8 / N - NIGHT","PATH LIGHTS FADE AT DUSK"}},
+        {"ENVIRONMENT OBJECTS",{"P / 8 - PALMS AND ROCKS","Y - VIEW STILT HOUSE","L / 9 - VIEW SAILBOATS","CHAIRS AND HOUSE: VIEW ONLY","TREES SWAY AUTOMATICALLY","COCONUTS FALL AUTOMATICALLY","WAVES AND BOAT BOBBING: AUTO","DISTANT BOATS DRIFT: AUTO","O / R - ISLAND OVERVIEW"}},
+        {"CAMERA AND GRAPHICS",{"LEFT DRAG - ORBIT / LOOK","RIGHT DRAG - PAN FREE VIEW","SCROLL - ZOOM FREE VIEW","TAB - CYCLE OBJECT VIEWS","M - CHANGE SHADING","X - TEXTURES; G - SHADOWS","Z - WIREFRAME","F1 - SHOW / HIDE THIS GUIDE","F2 - FPS AND GPU DETAILS","ESC - EXIT PROJECT"}}
+    };return entries;
+}
+struct ObjectGuideRow {std::string text;int section=-1;};
+struct ObjectGuideState {
+    bool visible=true;int selected=GUIDE_CAMERA,context=-1,capturedButton=-1;
+    float left=18,top=18,width=340,height=0,scale=1,scroll=0;
+    std::vector<ObjectGuideRow> rows;
+    void rebuild(){
+        rows.clear();int columns=std::max(8,(int)((width/scale-20)/12));
+        auto wrap=[&](std::string value,int section){
+            while((int)value.size()>columns){size_t end=value.rfind(' ',columns);
+                if(end==std::string::npos || end==0)end=columns;
+                rows.push_back({value.substr(0,end),section});value.erase(0,end);
+                while(!value.empty()&&value.front()==' ')value.erase(0,1);}
+            rows.push_back({value,section});
+        };
+        const auto& entries=objectGuideEntries();
+        for(int i=0;i<(int)entries.size();++i){wrap(std::string(i==selected?"- ":"+ ")+entries[i].title,i);
+            if(i==selected)for(const auto& line:entries[i].instructions)wrap(line,-1);}
+        scroll=std::clamp(scroll,0.f,std::max(0.f,(float)rows.size()*20-std::max(0.f,height/scale-42)));
+    }
+    void layout(int w,int h){
+        scale=std::clamp((w-36.f)/340.f,.35f,1.f);
+        width=std::max(0.f,std::min(340*scale,w*.44f));
+        float available=std::max(0.f,h-18-102*scale-12-top);
+        height=visible?available:std::min(32*scale,available);rebuild();
+    }
+    void observe(int current){if(current!=context){context=current;selected=current;scroll=0;rebuild();}}
+    void toggle(){visible=!visible;capturedButton=-1;}
+    bool contains(double x,double y)const{return height>0&&x>=left&&x<=left+width&&y>=top&&y<=top+height;}
+    bool active()const{return capturedButton!=-1;}
+    bool mouse(int button,int action,double x,double y){
+        if(action==GLFW_RELEASE){if(button==capturedButton){capturedButton=-1;return true;}return false;}
+        if(action!=GLFW_PRESS||!contains(x,y))return false;
+        capturedButton=button;if(button!=GLFW_MOUSE_BUTTON_LEFT)return true;
+        float localY=((float)y-top)/scale;
+        if(localY<32){visible=!visible;return true;}
+        if(visible&&localY>=42){int row=(int)((localY-42+scroll)/20);
+            if(row>=0&&row<(int)rows.size()&&rows[row].section>=0){int section=rows[row].section;
+                selected=selected==section?-1:section;rebuild();}}
+        return true;
+    }
+    bool wheel(double x,double y,double amount){
+        if(!active()&&!contains(x,y))return false;
+        scroll-=static_cast<float>(amount)*48;rebuild();return true;
+    }
+};
+
 class DayCyclePanel
 {
     GLuint program=0,vao=0,vbo=0;
+    GLint screenLocation=-1;
     std::vector<float> vertices;
     float left=18,top=18,width=340,scale=1;
     bool captured=false,dragging=false;
+    bool clipGuide=false;float clipTop=0,clipBottom=0;
     void rect(float x,float y,float w,float h,float r,float g,float b,float a=1)
     {
+        if(clipGuide){float end=std::min(y+h,clipBottom);y=std::max(y,clipTop);h=end-y;if(h<=0)return;}
         for(int corner:{0,1,2,0,2,3})
         {
             float px=x+((corner==1 || corner==2)?w:0),py=y+(corner>=2?h:0);
@@ -1522,20 +1669,42 @@ class DayCyclePanel
         switch(c)
         {
         case 'A':return "01110100011000111111100011000110001";
+        case 'B':return "11110100011000111110100011000111110";
         case 'C':return "01111100001000010000100001000001111";
         case 'D':return "11110100011000110001100011000111110";
         case 'E':return "11111100001000011110100001000011111";
         case 'F':return "11111100001000011110100001000010000";
+        case 'G':return "01111100001000010111100011000101111";
         case 'H':return "10001100011000111111100011000110001";
+        case 'I':return "11111001000010000100001000010011111";
+        case 'J':return "00111000100001000010100101001001100";
+        case 'K':return "10001100101010011000101001001010001";
         case 'L':return "10000100001000010000100001000011111";
+        case 'M':return "10001110111010110101100011000110001";
+        case 'N':return "10001110011010110011100011000110001";
         case 'O':return "01110100011000110001100011000101110";
         case 'P':return "11110100011000111110100001000010000";
+        case 'Q':return "01110100011000110001101011001001101";
         case 'R':return "11110100011000111110101001001010001";
         case 'S':return "01111100001000001110000010000111110";
         case 'T':return "11111001000010000100001000010000100";
         case 'U':return "10001100011000110001100011000101110";
+        case 'V':return "10001100011000110001100010101000100";
         case 'W':return "10001100011000110101101011010101010";
+        case 'X':return "10001100010101000100010101000110001";
         case 'Y':return "10001100010101000100001000010000100";
+        case 'Z':return "11111000010001000100010001000011111";
+        case ':':return "00000011000110000000011000110000000";
+        case '-':return "00000000000000011111000000000000000";
+        case '%':return "11001110100001000100010001001100011";
+        case '[':return "01100010000100001000010000100001100";
+        case ']':return "00110000100001000010000100001000110";
+        case '+':return "00000001000010011111001000010000000";
+        case '(':return "00010001000100001000010000010000010";
+        case ')':return "01000001000001000010000100010001000";
+        case ',':return "00000000000000000000001100010001000";
+        case '\'':return "00100001000010000000000000000000000";
+        case '_':return "00000000000000000000000000000011111";
         case '0':return "01110100011001110101110011000101110";
         case '1':return "00100011000010000100001000010001110";
         case '2':return "01110100010000100010001000100011111";
@@ -1594,11 +1763,12 @@ public:
         GLuint vertex=compile(GL_VERTEX_SHADER,vs),fragment=compile(GL_FRAGMENT_SHADER,fs);
         program=glCreateProgram();glAttachShader(program,vertex);glAttachShader(program,fragment);glLinkProgram(program);glDeleteShader(vertex);glDeleteShader(fragment);
         GLint ok;glGetProgramiv(program,GL_LINK_STATUS,&ok);if(!ok)throw std::runtime_error("Day slider linking failed");
+        screenLocation=glGetUniformLocation(program,"screen");
         glGenVertexArrays(1,&vao);glGenBuffers(1,&vbo);glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,vbo);
         glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,6*sizeof(float),nullptr);glEnableVertexAttribArray(0);
         glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)(2*sizeof(float)));glEnableVertexAttribArray(1);glBindVertexArray(0);
     }
-    void draw(int windowWidth,int windowHeight,float speed,bool paused)
+    void draw(int windowWidth,int windowHeight,float speed,bool paused,const std::vector<std::string>& hud={},ObjectGuideState* guide=nullptr)
     {
         layout(windowWidth,windowHeight);vertices.clear();
         rect(0,0,340,102,.025f,.06f,.08f,.93f);rect(0,0,340,2,.17f,.77f,.66f);
@@ -1608,13 +1778,43 @@ public:
         rect(18,56,304,5,.20f,.31f,.34f);rect(18,56,304*t,5,.17f,.77f,.66f);
         rect(18+304*t-5,49,10,19,.91f,.98f,.96f);
         text(18,81,"SLOW",.55f,.69f,.71f);text(274,81,"FAST",.55f,.69f,.71f);
+        // Draw the read-only HUD above the interactive slider. Wrap long GPU
+        // names and hide overflow rather than covering the controls on resize.
+        float savedTop=top,savedLeft=left;
+        if(guide){guide->layout(windowWidth,windowHeight);left=guide->left;top=guide->top;
+            if(guide->height>=20*scale){rect(0,0,guide->width/scale,guide->height/scale,.025f,.06f,.08f,.92f);
+                rect(0,0,guide->width/scale,2,.17f,.77f,.66f);
+                std::string heading=guide->width/scale>=300?"F1 OBJECT GUIDE":"F1 GUIDE";text(10,9,heading);
+                if(guide->visible){clipGuide=true;clipTop=34;clipBottom=guide->height/scale;
+                    for(int i=0;i<(int)guide->rows.size();++i){float y=42+i*20-guide->scroll;
+                        if(y+18<clipTop||y>clipBottom)continue;
+                        const auto& row=guide->rows[i];
+                        if(row.section>=0)rect(6,y-2,guide->width/scale-12,20,.10f,.22f,.25f,.95f);
+                        text(10,y,row.text,row.section>=0?.42f:.86f,row.section>=0?.91f:.93f,.85f);
+                    }clipGuide=false;
+                    float viewport=std::max(0.f,guide->height/scale-42),content=guide->rows.size()*20.f;
+                    if(content>viewport&&viewport>0){
+                        float thumb=std::max(12.f,viewport*viewport/content);
+                        rect(guide->width/scale-4,42,3,viewport,.12f,.22f,.25f);
+                        rect(guide->width/scale-4,42+(viewport-thumb)*guide->scroll/(content-viewport),3,thumb,.32f,.78f,.72f);
+                    }}
+            }
+        }
+        left=guide?guide->left+guide->width+12:savedLeft;
+        int columns=std::max(8,(int)((windowWidth-left-20)/(12*scale)));
+        std::vector<std::string> rows;
+        for(auto line:hud){for(char& c:line)if(c>='a' && c<='z')c-=32;
+            while((int)line.size()>columns){rows.push_back(line.substr(0,columns));line.erase(0,columns);}rows.push_back(line);}
+        int count=std::min((int)rows.size(),std::max(0,(int)((savedTop-36)/(18*scale))));
+        top=18;if(count){rect(0,0,(windowWidth-left-18)/scale,12+18*count,.025f,.06f,.08f,.85f);
+            for(int i=0;i<count;++i)text(10,6+18*i,rows[i]);}top=savedTop;left=savedLeft;
         GLint oldProgram,oldVAO,oldBuffer,polygon[2],src,dst,srcAlpha,dstAlpha;
         glGetIntegerv(GL_CURRENT_PROGRAM,&oldProgram);glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&oldVAO);glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&oldBuffer);
         glGetIntegerv(GL_POLYGON_MODE,polygon);glGetIntegerv(GL_BLEND_SRC_RGB,&src);glGetIntegerv(GL_BLEND_DST_RGB,&dst);glGetIntegerv(GL_BLEND_SRC_ALPHA,&srcAlpha);glGetIntegerv(GL_BLEND_DST_ALPHA,&dstAlpha);
         GLboolean depth=glIsEnabled(GL_DEPTH_TEST),blend=glIsEnabled(GL_BLEND),cull=glIsEnabled(GL_CULL_FACE),mask;
         glGetBooleanv(GL_DEPTH_WRITEMASK,&mask);
         glDisable(GL_DEPTH_TEST);glDisable(GL_CULL_FACE);glDepthMask(GL_FALSE);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-        glUseProgram(program);glUniform2f(glGetUniformLocation(program,"screen"),(float)windowWidth,(float)windowHeight);
+        glUseProgram(program);glUniform2f(screenLocation,(float)windowWidth,(float)windowHeight);
         glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(float),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,(GLsizei)vertices.size()/6);
         glBindVertexArray(oldVAO);glBindBuffer(GL_ARRAY_BUFFER,oldBuffer);glUseProgram(oldProgram);glPolygonMode(GL_FRONT_AND_BACK,polygon[0]);glDepthMask(mask);
         if(depth)glEnable(GL_DEPTH_TEST);if(cull)glEnable(GL_CULL_FACE);if(!blend)glDisable(GL_BLEND);glBlendFuncSeparate(src,dst,srcAlpha,dstAlpha);
