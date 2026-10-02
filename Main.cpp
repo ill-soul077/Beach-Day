@@ -9,12 +9,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "shaderClass.h"
-#include "MeshPrimitives.h"
-#include "TextureManager.h"
-#include "Skybox.h"
-#include "SceneObjects.h"
-#include "Camera.h"
+#include "Scene.h"
 
 // Window Dimensions
 const unsigned int SCR_WIDTH = 1200;
@@ -34,6 +29,8 @@ float lastFrame = 0.0f;
 float g_dayTime       = 7.0f;    // 24-hour clock (e.g. 7.0 = 7:00 AM Sunrise)
 float g_daySpeed      = 0.35f;   // Hours per second
 bool  g_dayPaused     = false;
+LighthouseBeamState g_lighthouseBeam;
+DayCyclePanel g_dayPanel;
 
 // 2. Texture Mapping & Visual Overrides
 bool  g_useTextures   = true;    // [X] to toggle procedural texture mapping
@@ -63,31 +60,23 @@ struct DrivableBoatState
     float throttleInput      = 0.0f;   // Raw throttle input (-1 to 1)
     float propellerAngle     = 0.0f;   // Spinning prop visual angle
 
-    // Smooth angular state (lerped for visual stability)
+    // Pose reported by the damped multi-point buoyancy response.
     float pitch              = 0.0f;   // Current smoothed pitch (deg)
     float roll               = 0.0f;   // Current smoothed roll (deg)
-    float targetPitch        = 0.0f;   // Target pitch from physics
-    float targetRoll         = 0.0f;   // Target roll from physics
     float yawVelocity        = 0.0f;   // Angular yaw rate (deg/s) for momentum
-
-    // Hull waterline reference height (half-draft)
-    float draftOffset        = 0.15f;  // How deep the hull sits in water
 };
 
 DrivableBoatState g_boatState;
-bool g_boatPilotMode = false; // [F] / [0] to toggle interactive 3rd-person Pilot Mode
-
-struct BeachATVState
-{
-    glm::vec3 pos = glm::vec3(0.0f, 0.0f, 43.0f);
-    float heading = 90.0f;
-    float speed = 0.0f;
-    float steering = 0.0f;
-    float wheelSpin = 0.0f;
-};
+BoatFloatState g_motorFloat, g_sailFloat2, g_sailFloat3;
+glm::vec3 g_boatVelocity(0.0f);
+std::vector<glm::vec4> g_wakeTrail; // X, Z, creation time, speed
+bool g_boatPilotMode = false; // [F] toggles interactive third-person pilot mode
 
 BeachATVState g_atvState;
+BeachCircuit g_beachCircuit;
 bool g_atvDriveMode = false; // [H] toggles beach-ring ATV driving
+bool g_atvFirstPerson = false;
+float g_atvLookYaw = 0.0f, g_atvLookPitch = 0.0f, g_atvCameraDistance = 5.5f;
 
 // Callback Declarations
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -108,6 +97,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
     // 2. Create Window
     GLFWwindow* window = glfwCreateWindow(
@@ -130,6 +120,9 @@ int main()
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetScrollCallback(window, scroll_callback);
+    glfwSetWindowFocusCallback(window,[](GLFWwindow*,int focused){
+        if(!focused){g_dayPanel.cancel();camera.isDraggingOrbit=false;camera.isDraggingPan=false;}
+    });
 
     // 3. Load GLAD Function Pointers
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
@@ -142,6 +135,7 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    g_dayPanel.init();
 
     std::cout << "=======================================================================\n";
     std::cout << "  BEACH DAY: FULL SUNRISE-TO-SUNSET COASTAL SCENE (CSE 4102 LABORATORY)\n";
@@ -150,6 +144,7 @@ int main()
     std::cout << "  Day-Cycle & Lighting Controls:\n";
     std::cout << "    [SPACE]            : Pause / Resume day cycle progression\n";
     std::cout << "    [ [ ] / [ ] ]      : Slow down / Speed up day-cycle transition\n";
+    std::cout << "    Day-speed panel    : Drag slider, scroll over panel, or click Pause/Play\n";
     std::cout << "    [J] / [F5]         : Instant jump to SUNRISE (06:30)\n";
     std::cout << "    [K] / [F6]         : Instant jump to MIDDAY NOON (12:00)\n";
     std::cout << "    [L] / [F7]         : Instant jump to SUNSET (18:15)\n";
@@ -157,26 +152,29 @@ int main()
     std::cout << "\n";
     std::cout << "  Shading & Graphics Techniques:\n";
     std::cout << "    [M]                : Cycle Shading Mode (Auto Proposal / Flat / Gouraud / Phong)\n";
-    std::cout << "    [V]                : Cycle Camera Projection (Perspective / Ortho Top / Ortho Side)\n";
+    std::cout << "    Camera             : Perspective views constrained above water and terrain\n";
     std::cout << "    [X]                : Toggle Texture Mapping ON / OFF (Sand, Water, Sail, Palms)\n";
     std::cout << "    [G]                : Toggle Dynamic Projected Shadows ON / OFF\n";
     std::cout << "    [Z]                : Toggle Wireframe Mode\n";
     std::cout << "\n";
     std::cout << "  Quick Camera Focus Presets:\n";
     std::cout << "    [B] / [5]          : Focus on ROBOT MOTORBOAT (Sleek hull, helm, robot driver)\n";
-    std::cout << "    [T] / [6]          : Focus on LIFEGUARD TOWER (Stilts, ladder, roof)\n";
+    std::cout << "    [T] / [6]          : Focus on HILLTOP LIGHTHOUSE\n";
     std::cout << "    [C] / [7]          : Focus on CENTER ROBOT & UMBRELLA\n";
     std::cout << "    [P] / [8]          : Focus on PALM TREES & COASTAL ROCKS\n";
     std::cout << "    [O] / [R]          : Full Scenic Beach Panorama Overview\n";
     std::cout << "    [TAB]              : Tour / Cycle through every object one-by-one\n";
     std::cout << "\n";
     std::cout << "  Interactive Robot Boat Pilot Mode:\n";
-    std::cout << "    [F] / [0]          : TOGGLE BOAT PILOT MODE (3rd-Person Chase Cam!)\n";
+    std::cout << "    [F]                : TOGGLE BOAT PILOT MODE (3rd-Person Chase Cam!)\n";
     std::cout << "    [UP] / [W]         : Throttle Forward (Accelerate through ocean waves)\n";
     std::cout << "    [DOWN] / [S]       : Throttle Reverse / Brake\n";
     std::cout << "    [LEFT] / [A]       : Steer Port (Left) - Robot steers wheel & glances left\n";
     std::cout << "    [RIGHT] / [D]      : Steer Starboard (Right) - Robot steers wheel & glances right\n";
-    std::cout << "    [H]                : Toggle BEACH ATV DRIVE MODE (WASD beach-ring tour)\n";
+    std::cout << "    [H]                : Ride the robot's 4x4 ATV (WASD / arrows)\n";
+    std::cout << "    [U]                : Start / stop a complete island-perimeter tour\n";
+    std::cout << "    [E]                : Toggle ATV chase / rider-eye camera\n";
+    std::cout << "    Left mouse drag    : Look around while riding; scroll adjusts chase distance\n";
     std::cout << "\n";
     std::cout << "  Beach Resort Interactive Parameters:\n";
     std::cout << "    [1 / 2]            : Turn Beach Resort Robot Head Left / Right\n";
@@ -186,6 +184,8 @@ int main()
     // 4. Build and Compile Shaders
     Shader shaderProgram("default.vert", "default.frag");
     Shader waterShader("water.vert", "water.frag");
+    SunShadows sunShadows;sunShadows.init();
+    double tideHours=0;
 
     // 5. Instantiate Skybox & Procedural Texture Manager
     Skybox skybox;
@@ -204,8 +204,24 @@ int main()
     FrustumMesh lighthouseTowerMesh(0.5f, 0.34f, 40);
     FrustumMesh lighthouseRoofMesh(0.55f, 0.0f, 40);
     FrustumMesh lighthouseBeamMesh(0.5f, 0.0f, 48, false);
+    LighthouseSite lighthouseSite;
+    std::cout<<"[Lighthouse] Grounded summit foundation active; base height "<<lighthouseSite.baseHeight()<<" m.\n";
 
     // Start on the intended establishing composition instead of a close crop.
+    g_atvState.pos = g_beachCircuit.sample(0.0f, &g_atvState.heading);
+    ATVTracks atvTracks;atvTracks.init();atvTracks.update(g_atvState);
+    const glm::mat4 chargingStationMat=beachChargingStationTransform(g_beachCircuit);
+    const auto beachChairs=safeBeachChairPlacements();
+    IslandNightLights nightLights(g_beachCircuit);
+    IslandVegetation tropicalVegetation(g_beachCircuit);
+    std::cout<<"[Island] Added "<<tropicalVegetation.palmCount()<<" palms, "<<tropicalVegetation.broadleafCount()<<" broadleaf trees, "<<tropicalVegetation.understoryCount()<<" tropical plants, "<<tropicalVegetation.fernCount()<<" ferns, "<<tropicalVegetation.flowerCount()<<" flowering shrubs, "<<tropicalVegetation.grassCount()<<" grass clumps and "<<nightLights.count()<<" night lights.\n";
+    int initialWidth,initialHeight;glfwGetWindowSize(window,&initialWidth,&initialHeight);g_dayPanel.layout(initialWidth,initialHeight);
+    camera.realisticNavigation = true;
+    camera.surfaceHeight = [](float x,float z) {
+        // Upper envelope of swell and wake; prevents the near plane entering
+        // troughs or crests as the waves move below a stationary camera.
+        return glm::max(1.15f+g_sceneSeaLevel,getIslandBackdropElevation(x,z));
+    };
     camera.setPreset(VIEW_OVERVIEW, window);
     camera.update(1.0f);
 
@@ -214,17 +230,33 @@ int main()
     {
         // Timing
         float currentFrame = (float)glfwGetTime();
-        deltaTime = currentFrame - lastFrame;
+        float atvElapsed = glm::clamp(currentFrame - lastFrame, 0.0f, 0.25f);
+        deltaTime = glm::clamp(currentFrame - lastFrame, 0.0f, 0.05f);
         lastFrame = currentFrame;
 
         // Process Input & Camera
         processInput(window);
+        if (g_atvDriveMode)
+        {
+            float throttle = 0.0f, steer = 0.0f;
+            if (glfwGetKey(window,GLFW_KEY_W)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_UP)==GLFW_PRESS) throttle+=1;
+            if (glfwGetKey(window,GLFW_KEY_S)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_DOWN)==GLFW_PRESS) throttle-=1;
+            if (glfwGetKey(window,GLFW_KEY_A)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_LEFT)==GLFW_PRESS) steer-=1;
+            if (glfwGetKey(window,GLFW_KEY_D)==GLFW_PRESS || glfwGetKey(window,GLFW_KEY_RIGHT)==GLFW_PRESS) steer+=1;
+            int completed = g_atvState.completedTours;
+            updateBeachATV(g_atvState,g_beachCircuit,throttle,steer,atvElapsed,
+                           glfwGetKey(window,GLFW_KEY_SPACE)==GLFW_PRESS);
+            if(g_atvState.completedTours>completed)
+                std::cout << "[ATV] Full island circuit completed. Back at the start.\n";
+        }
+        camera.riderViewActive = g_atvDriveMode && g_atvFirstPerson;
+        atvTracks.update(g_atvState);
         if (g_boatPilotMode)
         {
             // Dynamic Third-Person Chase Camera behind the Robot's Motorboat
             camera.isTransitioning = false;
             camera.target = glm::mix(camera.target, g_boatState.pos + glm::vec3(0.0f, 1.15f, 0.0f), glm::clamp(deltaTime * 8.0f, 0.0f, 1.0f));
-            float desiredYaw = 180.0f - g_boatState.heading;
+            float desiredYaw = 180.0f + g_boatState.heading;
             float yawDiff = desiredYaw - camera.yaw;
             while (yawDiff < -180.0f) yawDiff += 360.0f;
             while (yawDiff > 180.0f) yawDiff -= 360.0f;
@@ -235,14 +267,22 @@ int main()
         else if (g_atvDriveMode)
         {
             camera.isTransitioning = false;
-            camera.target = glm::mix(camera.target, g_atvState.pos + glm::vec3(0.0f, 1.1f, 0.0f), glm::clamp(deltaTime * 8.0f, 0.0f, 1.0f));
-            float desiredYaw = 180.0f - g_atvState.heading;
+            float follow=1-expf(-10*atvElapsed);
+            camera.target = glm::mix(camera.target, g_atvState.pos + glm::vec3(0.0f, 1.1f, 0.0f), follow);
+            float desiredYaw = 180.0f + g_atvState.heading + g_atvLookYaw;
             float yawDiff = desiredYaw - camera.yaw;
             while (yawDiff < -180.0f) yawDiff += 360.0f;
             while (yawDiff > 180.0f) yawDiff -= 360.0f;
-            camera.yaw += yawDiff * glm::clamp(deltaTime * 5.0f, 0.0f, 1.0f);
-            camera.pitch = glm::mix(camera.pitch, 17.0f, glm::clamp(deltaTime * 5.0f, 0.0f, 1.0f));
-            camera.distance = glm::mix(camera.distance, 7.5f, glm::clamp(deltaTime * 5.0f, 0.0f, 1.0f));
+            camera.yaw += yawDiff * (1-expf(-7*atvElapsed));
+            camera.pitch = glm::mix(camera.pitch, glm::clamp(18.0f-g_atvLookPitch,5.0f,50.0f), 1-expf(-5*atvElapsed));
+            camera.distance = glm::mix(camera.distance, g_atvCameraDistance, 1-expf(-5*atvElapsed));
+            glm::mat4 vehicle = beachATVTransform(g_atvState);
+            camera.riderEye = glm::vec3(vehicle*glm::vec4(0,2.10f,.18f,1));
+            camera.riderEye.y = glm::max(camera.riderEye.y,
+                getCoastalTerrainElevation(camera.riderEye.x,camera.riderEye.z)+1.65f);
+            float look = glm::radians(g_atvLookYaw), tilt = glm::radians(g_atvLookPitch);
+            camera.riderDirection = glm::normalize(glm::vec3(vehicle*
+                glm::vec4(sinf(look)*cosf(tilt),sinf(tilt),cosf(look)*cosf(tilt),0)));
         }
         else
         {
@@ -255,9 +295,15 @@ int main()
         camera.update(deltaTime);
 
         // Advance Day Cycle
+        auto beamKey=[&](int key){return glfwGetKey(window,key)==GLFW_PRESS?1.0f:0.0f;};
+        g_lighthouseBeam.update(atvElapsed,
+            beamKey(GLFW_KEY_PERIOD)-beamKey(GLFW_KEY_COMMA),
+            beamKey(GLFW_KEY_APOSTROPHE)-beamKey(GLFW_KEY_SEMICOLON),
+            beamKey(GLFW_KEY_F12)-beamKey(GLFW_KEY_F11));
         if (!g_dayPaused)
         {
-            g_dayTime += deltaTime * g_daySpeed;
+            tideHours+=atvElapsed*g_daySpeed;
+            g_dayTime += atvElapsed * g_daySpeed;
             if (g_dayTime >= 24.0f) g_dayTime -= 24.0f;
             if (g_dayTime < 0.0f)   g_dayTime += 24.0f;
         }
@@ -328,7 +374,9 @@ int main()
 
         // View and Projection Matrices
         glm::mat4 view = camera.getViewMatrix();
-        glm::mat4 proj = camera.getProjectionMatrix((float)SCR_WIDTH / (float)SCR_HEIGHT);
+        int framebufferWidth, framebufferHeight;
+        glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+        glm::mat4 proj = camera.getProjectionMatrix((float)framebufferWidth / glm::max(framebufferHeight, 1));
         glm::vec3 camPos = camera.getPosition();
         glm::vec3 lightDir = glm::normalize(sunPosition);
 
@@ -353,54 +401,23 @@ int main()
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "objectAlpha"), 1.0f);
         glUniform1i(glGetUniformLocation(shaderProgram.ID, "beaconBeamPass"), 0);
 
-        // Apply Global Shading Mode Override if active
-        if (g_shadingMode > 0)
-        {
-            // 1: All Flat, 2: All Gouraud, 3: All Phong
-            glUniform1i(glGetUniformLocation(shaderProgram.ID, "shadingMode"), g_shadingMode - 1);
-        }
-
         // ====================================================================
         // ENVIRONMENTAL SIMULATION DYNAMICS
         // ====================================================================
-        // A. Shifting Tide Line: water edge gently shifts along shore
-        float tideOffset = sinf(currentFrame * 0.75f) * 1.8f + cosf(currentFrame * 0.35f) * 0.6f;
-        glm::vec3 seaCenter(0.0f, -0.12f, 22.0f - tideOffset * 0.5f);
-        float seaDepth = 40.0f + tideOffset;
+        g_sceneSeaLevel=coastalTideLevel(tideHours);
+        nightLights.bind(shaderProgram,g_dayTime);
+        nightLights.bind(waterShader,g_dayTime);
+        shaderProgram.Activate();
+        glUniform1i(glGetUniformLocation(shaderProgram.ID,"forceShadingMode"),g_shadingMode);
+        waterShader.Activate();
+        glUniform1i(glGetUniformLocation(waterShader.ID,"forceShadingMode"),g_shadingMode);
+        shaderProgram.Activate();
 
         // B. Wind Swaying: palm leaves & umbrella gently sway in sea breeze
         float windSway = sinf(currentFrame * 2.2f) * 1.6f + cosf(currentFrame * 1.1f) * 0.8f;
-        float dynamicUmbrellaTilt = g_umbrellaTilt + sinf(currentFrame * 1.6f) * 1.8f;
+        float dynamicUmbrellaTilt = g_umbrellaTilt + sinf(currentFrame * .6f) * .4f;
 
-        // C. DRIVABLE BEACH ATV - constrained to the continuous sand ring.
-        if (g_atvDriveMode)
-        {
-            float throttle = 0.0f;
-            float steer = 0.0f;
-            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) throttle += 1.0f;
-            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) throttle -= 1.0f;
-            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) steer += 1.0f;
-            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) steer -= 1.0f;
-
-            g_atvState.speed += throttle * 7.0f * deltaTime;
-            if (throttle == 0.0f)
-                g_atvState.speed *= powf(0.16f, deltaTime);
-            g_atvState.speed = glm::clamp(g_atvState.speed, -3.0f, 10.0f);
-            g_atvState.steering = glm::mix(g_atvState.steering, steer * 28.0f, glm::clamp(deltaTime * 7.0f, 0.0f, 1.0f));
-
-            float speedTurn = glm::clamp(fabsf(g_atvState.speed) / 4.0f, 0.0f, 1.0f);
-            g_atvState.heading += g_atvState.steering * speedTurn * (g_atvState.speed >= 0.0f ? 1.0f : -1.0f) * deltaTime;
-            float headingRad = glm::radians(g_atvState.heading);
-            glm::vec3 forward(sinf(headingRad), 0.0f, cosf(headingRad));
-            glm::vec3 candidate = g_atvState.pos + forward * g_atvState.speed * deltaTime;
-            float beachDistance = getIslandSignedDistance(candidate.x, candidate.z);
-            if (beachDistance > 3.0f && beachDistance < 25.0f)
-                g_atvState.pos = candidate;
-            else
-                g_atvState.speed *= -0.12f;
-            g_atvState.pos.y = getCoastalTerrainElevation(g_atvState.pos.x, g_atvState.pos.z);
-            g_atvState.wheelSpin += g_atvState.speed * deltaTime * 95.0f;
-        }
+        // ATV movement runs before the camera so the rider view uses this frame's pose.
 
         // ================================================================
         // D. REALISTIC MOTORBOAT PHYSICS SIMULATION
@@ -419,17 +436,6 @@ int main()
             if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
                 steerInput -= 1.0f;
             if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-                steerInput += 1.0f;
-        }
-        else
-        {
-            if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-                throttleInput += 1.0f;
-            if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-                throttleInput -= 1.0f;
-            if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-                steerInput -= 1.0f;
-            if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
                 steerInput += 1.0f;
         }
         g_boatState.throttleInput = throttleInput;
@@ -451,12 +457,12 @@ int main()
         float absSpeed = fabs(g_boatState.speed);
         float speedFrac = absSpeed / g_boatState.maxSpeed;
         // Skin friction: linear at low speed
-        float skinFriction = 0.35f * absSpeed;
+        float skinFriction = 0.12f * absSpeed;
         // Form drag: quadratic at higher speeds (hull pushing water aside)
-        float formDrag = 0.08f * absSpeed * absSpeed;
+        float formDrag = 0.012f * absSpeed * absSpeed;
         // Wave-making resistance: peaks near hull speed, drops when planing
         float hullSpeedKmh = 2.43f * sqrtf(6.0f); // Hull speed for ~6m waterline
-        float waveResistance = 0.15f * expf(-2.0f * powf(absSpeed - hullSpeedKmh * 0.5f, 2.0f) / 9.0f);
+        float waveResistance = 0.65f * expf(-2.0f * powf(absSpeed - hullSpeedKmh * 0.5f, 2.0f) / 9.0f);
         float totalDrag = (skinFriction + formDrag + waveResistance) * deltaTime;
 
         // --- Engine Force & Speed Integration ---
@@ -493,7 +499,7 @@ int main()
         if (throttleInput != 0.0f && fabs(flowSpeed) < 1.5f)
             flowSpeed = (throttleInput > 0.0f) ? 1.5f : -1.5f;
 
-        float turnForce = -rudderNorm * (flowSpeed / g_boatState.maxSpeed) * 85.0f;
+        float turnForce = rudderNorm * (flowSpeed / g_boatState.maxSpeed) * 85.0f;
         // Apply angular momentum: yaw velocity smoothly integrates turn force
         g_boatState.yawVelocity += (turnForce - g_boatState.yawVelocity * 3.2f) * deltaTime;
         g_boatState.heading += g_boatState.yawVelocity * deltaTime;
@@ -506,133 +512,54 @@ int main()
         float radHeading = glm::radians(g_boatState.heading);
         glm::vec3 forwardDir(sinf(radHeading), 0.0f, cosf(radHeading));
         glm::vec3 rightDir(cosf(radHeading), 0.0f, -sinf(radHeading));
-        g_boatState.pos += forwardDir * g_boatState.speed * deltaTime;
-
-        // Navigation boundaries (coastline and open sea limits)
-        if (g_boatState.pos.z < 5.5f)
-        {
-            g_boatState.pos.z = 5.5f;
-            float dotFwd = glm::dot(forwardDir, glm::vec3(0, 0, -1));
-            if ((g_boatState.speed > 0.0f && dotFwd > 0.3f) || (g_boatState.speed < 0.0f && dotFwd < -0.3f))
+        // Water resists sideways slip; retain a little momentum through turns.
+        g_boatVelocity = glm::mix(g_boatVelocity, forwardDir * g_boatState.speed,
+                                  1.0f - expf(-3.5f * deltaTime));
+        glm::vec3 candidate = g_boatState.pos + g_boatVelocity * deltaTime;
+        bool navigable = fabsf(candidate.x) < 900.0f && fabsf(candidate.z) < 900.0f;
+        // Check the full rendered hull, not a straight line across the beach.
+        for (float along : {-3.3f, 0.0f, 3.3f})
+            for (float across : {-1.2f, 1.2f})
             {
-                g_boatState.speed *= 0.5f; // Soft collision, bleed speed
+                glm::vec3 sample = candidate + forwardDir * along + rightDir * across;
+                navigable = navigable && getIslandSignedDistance(sample.x, sample.z) < -6.0f;
             }
+        if (navigable) g_boatState.pos = candidate;
+        else { g_boatState.speed *= expf(-10.0f * deltaTime); g_boatVelocity *= 0.4f; }
+
+        glm::mat4 boatMat1 = floatingBoatTransform(g_motorFloat, g_boatState.pos,
+            g_boatState.heading, 1.65f, currentFrame, deltaTime,
+            g_boatState.speed, g_boatState.yawVelocity);
+        g_boatState.pos.y = g_motorFloat.height;
+        g_boatState.pitch = g_motorFloat.pitch;
+        g_boatState.roll = g_motorFloat.roll;
+        static float lastWakeSample = -1.0f;
+        if (fabsf(g_boatState.speed) > 0.25f && currentFrame - lastWakeSample >= 0.25f)
+        {
+            glm::vec3 stern = g_boatState.pos - forwardDir * 3.55f;
+            g_wakeTrail.emplace_back(stern.x, stern.z, currentFrame, fabsf(g_boatState.speed));
+            if (g_wakeTrail.size() > 32) g_wakeTrail.erase(g_wakeTrail.begin());
+            lastWakeSample = currentFrame;
         }
-        if (g_boatState.pos.z > 220.0f) g_boatState.pos.z = 220.0f;
-        g_boatState.pos.x = glm::clamp(g_boatState.pos.x, -160.0f, 160.0f);
 
-        // --- Multi-Point Gerstner Wave Buoyancy (4 hull sample points) ---
-        // Sample wave height at bow, stern, port-midship, and starboard-midship
-        float hullLen = 2.0f;  // Half-length bow-to-stern
-        float hullBeam = 0.65f; // Half-beam width
-
-        glm::vec3 bowWorldPos  = g_boatState.pos + forwardDir * hullLen;
-        glm::vec3 sternWorldPos = g_boatState.pos - forwardDir * hullLen;
-        glm::vec3 portWorldPos  = g_boatState.pos - rightDir * hullBeam;
-        glm::vec3 stbdWorldPos  = g_boatState.pos + rightDir * hullBeam;
-
-        glm::vec3 bowWP, bowWN, sternWP, sternWN, portWP, portWN, stbdWP, stbdWN, centerWP, centerWN;
-        getGerstnerWaveAt(bowWorldPos.x, bowWorldPos.z, currentFrame, bowWP, bowWN);
-        getGerstnerWaveAt(sternWorldPos.x, sternWorldPos.z, currentFrame, sternWP, sternWN);
-        getGerstnerWaveAt(portWorldPos.x, portWorldPos.z, currentFrame, portWP, portWN);
-        getGerstnerWaveAt(stbdWorldPos.x, stbdWorldPos.z, currentFrame, stbdWP, stbdWN);
-        getGerstnerWaveAt(g_boatState.pos.x, g_boatState.pos.z, currentFrame, centerWP, centerWN);
-
-        // Average height from all 5 sample points (weighted: center heavier)
-        float avgY = (centerWP.y * 3.0f + bowWP.y + sternWP.y + portWP.y + stbdWP.y) / 7.0f;
-        g_boatState.pos.y = avgY + g_boatState.draftOffset;
-
-        // Pitch from bow-stern height differential
-        float bowSternDiff = bowWP.y - sternWP.y;
-        float wavePitch = glm::degrees(atanf(bowSternDiff / (hullLen * 2.0f)));
-
-        // Roll from port-starboard height differential
-        float portStbdDiff = stbdWP.y - portWP.y;
-        float waveRoll = glm::degrees(atanf(portStbdDiff / (hullBeam * 2.0f)));
-
-        // --- Wave Resistance: Opposing wave slopes slow the boat ---
-        float waveSlopeAgainstBow = -glm::dot(glm::vec3(centerWN.x, 0.0f, centerWN.z), forwardDir);
-        float waveImpact = glm::clamp(waveSlopeAgainstBow * absSpeed * 0.08f, -0.3f, 0.3f);
-        g_boatState.speed -= waveImpact * deltaTime;
-
-        // --- Hydrodynamic Planing Bow Rise ---
-        // At displacement speeds: bow level. At planing speeds: bow lifts 2-4 deg
-        float planingThreshold = 0.45f; // ~45% of max speed to begin planing
-        float planingFactor = glm::smoothstep(planingThreshold, 0.85f, speedFrac);
-        float planingPitch = planingFactor * 3.5f;
-
-        // --- Centripetal Turn Roll (bank inwards during turns) ---
-        float centripetalRoll = -rudderNorm * speedFrac * 6.0f;
-
-        // --- Speed-based vertical bob dampening (boats at speed skim over chop) ---
-        float chopDampen = glm::mix(1.0f, 0.5f, glm::smoothstep(0.3f, 0.8f, speedFrac));
-
-        // Compute target pitch/roll
-        g_boatState.targetPitch = wavePitch * chopDampen + planingPitch;
-        g_boatState.targetRoll  = waveRoll * chopDampen + centripetalRoll;
-
-        // --- Smooth Angular State (simulates rotational inertia of hull mass) ---
-        float angularSmooth = glm::clamp(deltaTime * 5.0f, 0.0f, 1.0f);
-        g_boatState.pitch = glm::mix(g_boatState.pitch, g_boatState.targetPitch, angularSmooth);
-        g_boatState.roll  = glm::mix(g_boatState.roll, g_boatState.targetRoll, angularSmooth);
-
-        // --- Build Final Boat Transform Matrix ---
-        glm::mat4 boatMat1 = glm::translate(glm::mat4(1.0f), g_boatState.pos);
-        boatMat1 = glm::rotate(boatMat1, glm::radians(g_boatState.heading), glm::vec3(0.0f, 1.0f, 0.0f));
-        boatMat1 = glm::rotate(boatMat1, glm::radians(g_boatState.pitch), glm::vec3(1.0f, 0.0f, 0.0f));
-        boatMat1 = glm::rotate(boatMat1, glm::radians(g_boatState.roll), glm::vec3(0.0f, 0.0f, 1.0f));
-        boatMat1 = glm::scale(boatMat1, glm::vec3(1.65f));
-
-        // Distant Boats with wave buoyancy
-        float boat2X = -12.0f + sinf(currentFrame * 0.15f) * 2.0f;
-        float boat2Z = 108.0f;
-        glm::vec3 boat2WavePos, boat2WaveNorm;
-        getGerstnerWaveAt(boat2X, boat2Z, currentFrame, boat2WavePos, boat2WaveNorm);
-        float boat2Pitch = glm::degrees(asinf(glm::clamp(-boat2WaveNorm.z, -0.6f, 0.6f)));
-        float boat2Roll  = glm::degrees(asinf(glm::clamp(boat2WaveNorm.x, -0.6f, 0.6f)));
-
-        glm::mat4 boatMat2 = glm::translate(glm::mat4(1.0f), boat2WavePos);
-        boatMat2 = glm::rotate(boatMat2, glm::radians(35.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        boatMat2 = glm::rotate(boatMat2, glm::radians(boat2Pitch), glm::vec3(1.0f, 0.0f, 0.0f));
-        boatMat2 = glm::rotate(boatMat2, glm::radians(boat2Roll), glm::vec3(0.0f, 0.0f, 1.0f));
-        boatMat2 = glm::scale(boatMat2, glm::vec3(1.30f));
-
-        float boat3X = 8.5f + sinf(currentFrame * 0.10f) * 1.5f;
-        float boat3Z = 142.0f;
-        glm::vec3 boat3WavePos, boat3WaveNorm;
-        getGerstnerWaveAt(boat3X, boat3Z, currentFrame, boat3WavePos, boat3WaveNorm);
-        float boat3Pitch = glm::degrees(asinf(glm::clamp(-boat3WaveNorm.z, -0.6f, 0.6f)));
-        float boat3Roll  = glm::degrees(asinf(glm::clamp(boat3WaveNorm.x, -0.6f, 0.6f)));
-
-        glm::mat4 boatMat3 = glm::translate(glm::mat4(1.0f), boat3WavePos);
-        boatMat3 = glm::rotate(boatMat3, glm::radians(8.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        boatMat3 = glm::rotate(boatMat3, glm::radians(boat3Pitch), glm::vec3(1.0f, 0.0f, 0.0f));
-        boatMat3 = glm::rotate(boatMat3, glm::radians(boat3Roll), glm::vec3(0.0f, 0.0f, 1.0f));
-        boatMat3 = glm::scale(boatMat3, glm::vec3(1.15f));
+        // Moorings allow a slow swing in heading and a small horizontal excursion.
+        // Each hull samples waves in its own heading, over its actual length/beam.
+        glm::vec3 boat2Position(-12.0f + sinf(currentFrame * 0.075f) * 0.55f, 0.0f,
+                               108.0f + cosf(currentFrame * 0.075f) * 0.35f);
+        float boat2Heading = 35.0f + sinf(currentFrame * 0.065f) * 5.0f;
+        glm::mat4 boatMat2 = floatingBoatTransform(g_sailFloat2, boat2Position,
+            boat2Heading, 1.30f, currentFrame, deltaTime);
+        glm::vec3 boat3Position(8.5f + sinf(currentFrame * 0.055f) * 0.45f, 0.0f,
+                               142.0f + cosf(currentFrame * 0.055f) * 0.30f);
+        float boat3Heading = 8.0f + sinf(currentFrame * 0.050f + 1.0f) * 4.0f;
+        glm::mat4 boatMat3 = floatingBoatTransform(g_sailFloat3, boat3Position,
+            boat3Heading, 1.15f, currentFrame, deltaTime);
 
         // Transforms for Main Beach Objects
-        float southBeachY = getCoastalTerrainElevation(0.0f, 39.0f);
-        glm::mat4 chairMat1 = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, southBeachY, 39.0f));
-        glm::mat4 robotMat1 = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, southBeachY + 0.62f, 39.05f));
-        glm::mat4 umbrellaMat1 = glm::translate(glm::mat4(1.0f), glm::vec3(-1.6f, southBeachY, 37.8f));
-
-        struct BeachChairPlacement { float x, z, yaw, scale; };
-        const BeachChairPlacement extraChairs[] = {
-            { -32.0f, 34.0f,  12.0f, 1.00f }, { -24.0f, 39.0f,   8.0f, 1.05f },
-            { -16.0f, 42.0f,   5.0f, 0.96f }, {  -8.0f, 44.0f,   2.0f, 1.02f },
-            {   9.0f, 44.0f,  -3.0f, 1.00f }, {  18.0f, 41.0f,  -8.0f, 1.06f },
-            {  28.0f, 36.0f, -14.0f, 0.98f }, {  74.0f,  4.0f, -58.0f, 1.03f },
-            {  84.0f,-17.0f, -72.0f, 0.96f }, {  91.0f,-39.0f, -84.0f, 1.05f },
-            {  94.0f,-63.0f, -90.0f, 1.00f }, {  96.0f,-88.0f, -94.0f, 1.04f },
-            {  93.0f,-113.0f,-99.0f, 0.98f }, {  86.0f,-137.0f,-108.0f,1.02f }
-        };
-        auto makeChairTransform = [](const BeachChairPlacement& placement)
-        {
-            float y = getCoastalTerrainElevation(placement.x, placement.z);
-            glm::mat4 result = glm::translate(glm::mat4(1.0f), glm::vec3(placement.x, y, placement.z));
-            result = glm::rotate(result, glm::radians(placement.yaw), glm::vec3(0.0f, 1.0f, 0.0f));
-            return glm::scale(result, glm::vec3(placement.scale));
-        };
+        glm::mat4 chairMat1=beachChairTransform(beachChairs[0]);
+        glm::mat4 robotMat1=glm::translate(chairMat1,glm::vec3(0,.62f,.05f));
+        float umbrellaX=beachChairs[0].x-1.6f,umbrellaZ=beachChairs[0].z-1.2f;
+        glm::mat4 umbrellaMat1=glm::translate(glm::mat4(1),glm::vec3(umbrellaX,getCoastalTerrainElevation(umbrellaX,umbrellaZ),umbrellaZ));
 
         glm::mat4 chairMat2 = glm::translate(glm::mat4(1.0f), glm::vec3(-7.5f, 0.0f, -1.6f));
         chairMat2 = glm::rotate(chairMat2, glm::radians(15.0f), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -669,17 +596,11 @@ int main()
         rightPalmMat = glm::scale(rightPalmMat, glm::vec3(1.20f));
 
         // Beach utility vehicle and lighthouse landmark.
-        g_atvState.pos.y = getCoastalTerrainElevation(g_atvState.pos.x, g_atvState.pos.z);
-        glm::mat4 fourWDMat = glm::translate(glm::mat4(1.0f), g_atvState.pos);
-        fourWDMat = glm::rotate(fourWDMat, glm::radians(g_atvState.heading), glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 fourWDMat = beachATVTransform(g_atvState);
 
         // Set the navigation tower on the high north-west shoulder, well above
         // the beach and storm-surge line rather than directly on flat sand.
-        const float lighthouseX = -6.0f;
-        const float lighthouseZ = -110.0f;
-        float lighthouseGround = getCoastalTerrainElevation(lighthouseX, lighthouseZ);
-        glm::mat4 lighthouseMat = glm::translate(glm::mat4(1.0f), glm::vec3(lighthouseX, lighthouseGround, lighthouseZ));
-        lighthouseMat = glm::rotate(lighthouseMat, glm::radians(8.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        const glm::mat4 lighthouseMat = lighthouseSite.transform();
 
         // Fade the beacon in at dusk, keep it at full power overnight, and
         // fade it out through dawn.
@@ -698,56 +619,10 @@ int main()
         // ====================================================================
         // Complete bounded island: submerged shelf, irregular beach ring, and
         // terrain rising gradually toward the central hill.
-        drawIslandTerrainBackdrop(shaderProgram, islandTerrainMesh, cubeMesh, sphereMesh);
-
-        // ====================================================================
-        // RENDER 3: DYNAMIC PLANAR PROJECTED SHADOWS
-        // As the sun traverses its arc, shadows stretch at dawn/dusk,
-        // shrink under objects at noon, and sweep across the sand!
-        // ====================================================================
-        if (g_renderShadows && sunPosition.y > 0.4f)
-        {
-            glm::mat4 shadowMat = getGroundShadowMatrix(sunPosition, 0.030f);
-            glm::vec3 shadowColor(0.20f, 0.16f, 0.12f); // Dark bold ground shadow
-
-            glUniform1i(glGetUniformLocation(shaderProgram.ID, "isShadowPass"), 1);
-            glUniform3fv(glGetUniformLocation(shaderProgram.ID, "shadowColor"), 1, glm::value_ptr(shadowColor));
-
-            // Prevent Z-fighting and ensure shadows sit crisp on top of sand
-            glEnable(GL_POLYGON_OFFSET_FILL);
-            glPolygonOffset(-2.0f, -2.0f);
-
-            // Umbrella Shadows (Hierarchical canopy discs & tilted poles)
-            drawUmbrella(shaderProgram, cubeMesh, sphereMesh, canopyGoreMesh, shadowMat * umbrellaMat1, dynamicUmbrellaTilt, 3.4f, 1.0f);
-
-            // Robot (Person) Shadows
-            drawRobot(shaderProgram, cubeMesh, sphereMesh, shadowMat * robotMat1, g_robotHeadYaw, -5.0f, g_robotLeftArm, g_robotRightArm, 82.0f);
-
-            // Beach Lounger Shadows
-            drawBeachChair(shaderProgram, cubeMesh, shadowMat * chairMat1);
-            for (const BeachChairPlacement& placement : extraChairs)
-                drawBeachChair(shaderProgram, cubeMesh, shadowMat * makeChairTransform(placement));
-
-            // Foreground Palm Tree Shadows (Long stretching trunks & feathery fronds)
-            drawPalmTree(shaderProgram, cubeMesh, sphereMesh, shadowMat * leftPalmMat, g_palmTrunkCurve, windSway);
-            drawPalmTree(shaderProgram, cubeMesh, sphereMesh, shadowMat * backLeftPalm, -g_palmTrunkCurve * 0.75f, windSway);
-            drawPalmTree(shaderProgram, cubeMesh, sphereMesh, shadowMat * backRightPalm, g_palmTrunkCurve * 0.85f, windSway);
-            drawPalmTree(shaderProgram, cubeMesh, sphereMesh, shadowMat * rightPalmMat, -g_palmTrunkCurve * 0.85f, windSway);
-
-            // Beach 4WD and lighthouse shadows
-            drawBeach4WD(shaderProgram, cubeMesh, sphereMesh, wheelCylinderMesh, shadowMat * fourWDMat);
-            drawLighthouse(shaderProgram, cubeMesh, sphereMesh, lighthouseTowerMesh,
-                           wheelCylinderMesh, lighthouseRoofMesh, shadowMat * lighthouseMat, currentFrame);
-
-            // Realistic Robot Motorboat Shadow on Water Plane
-            glm::mat4 waterShadowMat = getGroundShadowMatrix(sunPosition, 0.055f);
-            drawRealisticMotorboat(shaderProgram, cubeMesh, sphereMesh, waterShadowMat * boatMat1,
-                                   g_boatState.rudderAngle, g_boatState.throttleInput, g_boatState.propellerAngle,
-                                   g_boatState.speed, true);
-
-            glDisable(GL_POLYGON_OFFSET_FILL);
-            glUniform1i(glGetUniformLocation(shaderProgram.ID, "isShadowPass"), 0);
-        }
+        auto renderOpaqueScene=[&]() {
+        drawIslandTerrainBackdrop(shaderProgram, islandTerrainMesh, cubeMesh, sphereMesh,&texManager,g_useTextures);
+        tropicalVegetation.draw(shaderProgram,currentFrame);
+        nightLights.draw(shaderProgram,cubeMesh,sphereMesh,g_dayTime);
 
         // ====================================================================
         // RENDER 4: PRIMARY SCENE OBJECTS (FULL COLOR & LIGHTING)
@@ -799,13 +674,17 @@ int main()
 
         // 4. Center Beach Resort Setup (Interactive Robot & Tilting Umbrella)
         drawBeachChair(shaderProgram, cubeMesh, chairMat1);
-        for (const BeachChairPlacement& placement : extraChairs)
-            drawBeachChair(shaderProgram, cubeMesh, makeChairTransform(placement));
+        for (size_t i=1;i<beachChairs.size();++i)
+            drawBeachChair(shaderProgram,cubeMesh,beachChairTransform(beachChairs[i]));
         drawRobot(shaderProgram, cubeMesh, sphereMesh, robotMat1, g_robotHeadYaw, -5.0f, g_robotLeftArm, g_robotRightArm, 82.0f);
         drawUmbrella(shaderProgram, cubeMesh, sphereMesh, canopyGoreMesh, umbrellaMat1, dynamicUmbrellaTilt, 3.4f, 1.0f);
 
         // 8B. Island transport and navigation landmark
-        drawBeach4WD(shaderProgram, cubeMesh, sphereMesh, wheelCylinderMesh, fourWDMat);
+        drawBeach4WD(shaderProgram, cubeMesh, sphereMesh, wheelCylinderMesh, fourWDMat,
+                     g_atvState.wheelSpin, g_atvState.steering, g_atvLookYaw,true,
+                     g_atvState.bodyPitch,g_atvState.bodyRoll);
+        drawATVChargingStation(shaderProgram,cubeMesh,wheelCylinderMesh,chargingStationMat);
+        lighthouseSite.draw(shaderProgram);
         drawLighthouse(shaderProgram, cubeMesh, sphereMesh, lighthouseTowerMesh,
                        wheelCylinderMesh, lighthouseRoofMesh, lighthouseMat, currentFrame);
 
@@ -815,16 +694,31 @@ int main()
                                g_boatState.speed, true, &texManager, g_useTextures);
         drawBoat(shaderProgram, cubeMesh, sphereMesh, boatMat2, &texManager, g_useTextures);
         drawBoat(shaderProgram, cubeMesh, sphereMesh, boatMat3, &texManager, g_useTextures);
+        };
+        bool shadowsActive=g_renderShadows && lightDir.y>.025f;
+        if(shadowsActive)
+        {
+            sunShadows.begin(shaderProgram,lightDir,glm::clamp(camera.distance*1.3f,40.0f,300.0f),camera.target+glm::vec3(0,10,0));
+            renderOpaqueScene();
+            sunShadows.end(shaderProgram,framebufferWidth,framebufferHeight,view,proj);
+        }
+        sunShadows.bind(shaderProgram,shadowsActive);
+        renderOpaqueScene();
+        atvTracks.draw(shaderProgram);
+        sunShadows.bind(waterShader,shadowsActive);
+        shaderProgram.Activate();
 
         // The rotating lighthouse beam is rendered after opaque geometry so
         // additive blending produces a visible atmospheric shaft at night.
         drawLighthouseBeacon(shaderProgram, lighthouseBeamMesh, lighthouseMat,
-                             currentFrame, lighthouseNightIntensity);
+                             currentFrame, lighthouseNightIntensity,g_lighthouseBeam.heading,g_lighthouseBeam.elevation);
 
         // 10. Realistic Gerstner Ocean Wave Surface (Semi-Transparent Water with Breaking Crest Foam + Boat Wake)
         drawOceanWaves(waterShader, waterMesh, view, proj, camPos, lightDir, sunLightColor, ambientStrength, currentFrame,
                        &texManager, g_useTextures,
-                       g_boatState.pos, g_boatState.heading, g_boatState.speed);
+                       g_boatState.pos, g_boatState.heading, g_boatState.speed,
+                       glm::vec4(boat2Position.x,boat2Position.z,boat2Heading,1.30f),
+                       glm::vec4(boat3Position.x,boat3Position.z,boat3Heading,1.15f), g_wakeTrail);
 
         // ====================================================================
         // DYNAMIC HUD / TITLE BAR UPDATE
@@ -860,27 +754,45 @@ int main()
             {
                 ss << ">>> [BEACH ATV DRIVE MODE] <<<  Speed: "
                    << std::fixed << std::setprecision(1) << fabsf(g_atvState.speed) * 3.6f
-                   << " km/h | Controls: WASD | [H] Exit ATV";
+                   << " km/h | " << (g_atvState.touring ? "Island tour " : "Manual ")
+                   << (g_atvState.touring ? std::to_string((int)(100*g_atvState.tourTravelled/g_beachCircuit.length))+"% | " : "| ")
+                   << (g_atvFirstPerson ? "Rider eyes" : "Chase view")
+                   << " | WASD | Space: Brake | [U] Full circuit | [E] View | [H] Exit ride";
             }
             else
             {
                 ss << "Beach Day 3D | "
                    << std::setfill('0') << std::setw(2) << hours << ":"
                    << std::setfill('0') << std::setw(2) << minutes << " (" << phase << ") "
-                   << (g_dayPaused ? "[PAUSED]" : "[Speed: " + std::to_string((int)(g_daySpeed * 10.0f) / 10.0f).substr(0, 3) + "x]")
+                   << (g_dayPaused ? "[PAUSED]" : "[Day speed: " + std::to_string(g_daySpeed).substr(0,4) + " h/s]")
                    << " | " << shadeStr
+                   << " | Tide: " << std::fixed << std::setprecision(2) << g_sceneSeaLevel << " m"
                    << " | [H] Drive ATV | [F] Pilot Robot Boat | [B] Focus Boat | [1-4] Views";
             }
 
+            if(camera.currentPresetIndex==(int)VIEW_TOWER)
+                ss<<" | Grounded lighthouse | Beacon "<<(g_lighthouseBeam.paused?"PAUSED":"AUTO")
+                  <<" "<<std::fixed<<std::setprecision(0)<<g_lighthouseBeam.heading<<" deg"
+                  <<" / "<<g_lighthouseBeam.speed<<" deg/s / tilt "<<g_lighthouseBeam.elevation
+                  <<" | F9 pause | ,/. aim | ;/' speed | F11/F12 tilt | F10 reset";
             glfwSetWindowTitle(window, ss.str().c_str());
         }
 
         // Swap Buffers and Poll Events
+        int panelWidth,panelHeight;glfwGetWindowSize(window,&panelWidth,&panelHeight);
+        if(panelWidth>0 && panelHeight>0)g_dayPanel.draw(panelWidth,panelHeight,g_daySpeed,g_dayPaused);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
     // 8. Resource Cleanup
+    boatHull(false).cleanup();
+    boatHull(true).cleanup();
+    boatSail(false).cleanup();
+    boatSail(true).cleanup();
+    atvTracks.cleanup();
+    sunShadows.cleanup();
+    tropicalVegetation.cleanup();
     cubeMesh.cleanup();
     sphereMesh.cleanup();
     canopyGoreMesh.cleanup();
@@ -892,6 +804,8 @@ int main()
     lighthouseTowerMesh.cleanup();
     lighthouseRoofMesh.cleanup();
     lighthouseBeamMesh.cleanup();
+    lighthouseSite.cleanup();
+    g_dayPanel.cleanup();
     skybox.cleanup();
     texManager.cleanup();
     shaderProgram.Delete();
@@ -907,6 +821,16 @@ int main()
 // ============================================================================
 void processInput(GLFWwindow* window)
 {
+    static bool beamPausePressed=false,beamResetPressed=false;
+    bool pause=glfwGetKey(window,GLFW_KEY_F9)==GLFW_PRESS;
+    bool reset=glfwGetKey(window,GLFW_KEY_F10)==GLFW_PRESS;
+    if(pause && !beamPausePressed)
+    {
+        g_lighthouseBeam.paused=!g_lighthouseBeam.paused;
+        std::cout<<"[Beacon] "<<(g_lighthouseBeam.paused?"Sweep paused":"Sweep resumed")<<"\n";
+    }
+    if(reset && !beamResetPressed){g_lighthouseBeam=LighthouseBeamState();std::cout<<"[Beacon] Automatic sweep reset\n";}
+    beamPausePressed=pause;beamResetPressed=reset;
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
@@ -923,7 +847,7 @@ void processInput(GLFWwindow* window)
 
     // Toggle Day-Cycle Pause
     static bool spacePressed = false;
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !spacePressed)
+    if (!g_atvDriveMode && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !spacePressed)
     {
         g_dayPaused = !g_dayPaused;
         std::cout << ">>> [Day Cycle] " << (g_dayPaused ? "PAUSED" : "RUNNING") << " <<<\n";
@@ -987,7 +911,7 @@ void processInput(GLFWwindow* window)
     if (glfwGetKey(window, GLFW_KEY_N) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_F8) == GLFW_RELEASE)
         nPressed = false;
 
-    // Cycle Projection Mode: V key (Perspective -> Ortho Top View -> Ortho Side View)
+    // Perspective navigation remains constrained in the island scene.
     static bool vPressed = false;
     if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS && !vPressed)
     {
@@ -1047,14 +971,16 @@ void processInput(GLFWwindow* window)
     if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
         g_umbrellaTilt = glm::min(40.0f, g_umbrellaTilt + 20.0f * deltaTime);
 
-    // Toggle Robot Boat Pilot Mode: Key F or Key 0
+    // Toggle Robot Boat Pilot Mode: Key F
     static bool fKeyPressed = false;
-    if ((glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS) && !fKeyPressed)
+    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS && !fKeyPressed)
     {
         g_boatPilotMode = !g_boatPilotMode;
         if (g_boatPilotMode)
         {
             g_atvDriveMode = false;
+            g_atvState.touring = false;
+            g_atvState.speed = 0;
             camera.isTransitioning = false;
             std::cout << "\n=======================================================\n";
             std::cout << ">>> [ROBOT BOAT PILOT MODE: ACTIVATED] <<<\n";
@@ -1062,7 +988,7 @@ void processInput(GLFWwindow* window)
             std::cout << "    [S] / [DOWN]   : Throttle Reverse / Brake\n";
             std::cout << "    [A] / [LEFT]   : Steer Port (Left) - Robot steers & glances left\n";
             std::cout << "    [D] / [RIGHT]  : Steer Starboard (Right) - Robot steers & glances right\n";
-            std::cout << "    [F] / [0]      : Exit Pilot Mode (Return to Free Camera)\n";
+            std::cout << "    [F]            : Exit Pilot Mode (Return to Free Camera)\n";
             std::cout << "=======================================================\n\n";
         }
         else
@@ -1071,7 +997,7 @@ void processInput(GLFWwindow* window)
         }
         fKeyPressed = true;
     }
-    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_0) == GLFW_RELEASE)
+    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_RELEASE)
         fKeyPressed = false;
 
     // Toggle the beach-ring ATV chase camera and driving controls.
@@ -1083,20 +1009,53 @@ void processInput(GLFWwindow* window)
         {
             g_boatPilotMode = false;
             camera.isTransitioning = false;
+            camera.currentPresetIndex = -1;
+            g_atvLookYaw = g_atvLookPitch = 0;
+            camera.target=g_atvState.pos+glm::vec3(0,1.1f,0);
+            camera.yaw=180+g_atvState.heading;camera.pitch=18;
+            camera.distance=g_atvCameraDistance;
             std::cout << "\n>>> [BEACH ATV DRIVE MODE: ACTIVATED] <<<\n";
-            std::cout << "    [W/S] : Accelerate / Reverse\n";
+            std::cout << "    [W/S] : Accelerate / Brake, then hold to reverse\n";
+            std::cout << "    [Space]: Brake\n";
             std::cout << "    [A/D] : Steer around the beach ring\n";
             std::cout << "    [H]   : Exit ATV mode\n";
+            std::cout << "    [U]   : Guided full-island round trip\n";
+            std::cout << "    [E]   : Rider-eye / chase view; left-drag to look around\n";
         }
         else
         {
             g_atvState.speed = 0.0f;
+            g_atvState.touring = false;
             std::cout << "\n>>> [BEACH ATV DRIVE MODE: DEACTIVATED] <<<\n";
         }
         hKeyPressed = true;
     }
     if (glfwGetKey(window, GLFW_KEY_H) == GLFW_RELEASE)
         hKeyPressed = false;
+
+    static bool uKeyPressed = false, eKeyPressed = false;
+    if(glfwGetKey(window,GLFW_KEY_U)==GLFW_PRESS && !uKeyPressed)
+    {
+        if(g_atvState.touring)
+        {g_atvState.touring=false;g_atvState.speed=0;std::cout<<"[ATV] Island tour stopped.\n";}
+        else
+        {
+            g_atvDriveMode=true;g_boatPilotMode=false;
+            camera.isTransitioning=false;camera.currentPresetIndex=-1;
+            startBeachTour(g_atvState,g_beachCircuit);
+            std::cout<<"[ATV] Full island-perimeter round trip started ("<<g_beachCircuit.length<<" m). WASD takes manual control.\n";
+        }
+        uKeyPressed=true;
+    }
+    if(glfwGetKey(window,GLFW_KEY_U)==GLFW_RELEASE)uKeyPressed=false;
+    if(g_atvDriveMode && glfwGetKey(window,GLFW_KEY_E)==GLFW_PRESS && !eKeyPressed)
+    {
+        g_atvFirstPerson=!g_atvFirstPerson;
+        g_atvLookYaw=g_atvLookPitch=0;
+        std::cout<<"[ATV] "<<(g_atvFirstPerson?"Robot rider-eye view":"ATV chase view")<<". Left-drag to look around.\n";
+        eKeyPressed=true;
+    }
+    if(glfwGetKey(window,GLFW_KEY_E)==GLFW_RELEASE)eKeyPressed=false;
 
     // Quick Camera Presets
     static bool bKeyPressed = false;
@@ -1175,15 +1134,37 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
+    int width,height;glfwGetWindowSize(window,&width,&height);g_dayPanel.layout(width,height);
+    if(g_dayPanel.mouse(button,action,xpos,ypos,g_daySpeed,g_dayPaused))return;
     camera.handleMouseButton(button, action, xpos, ypos);
 }
 
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 {
+    if(g_dayPanel.move(xpos,g_daySpeed)){camera.lastX=xpos;camera.lastY=ypos;return;}
+    if(g_atvDriveMode)
+    {
+        if(camera.isDraggingOrbit)
+        {
+            g_atvLookYaw=glm::clamp(g_atvLookYaw-(float)(xpos-camera.lastX)*.25f,-120.0f,120.0f);
+            g_atvLookPitch=glm::clamp(g_atvLookPitch+(float)(camera.lastY-ypos)*.20f,-30.0f,35.0f);
+        }
+        camera.lastX=xpos;camera.lastY=ypos;
+        return;
+    }
     camera.handleMouseMove(xpos, ypos);
 }
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
+    double x,y;glfwGetCursorPos(window,&x,&y);
+    int width,height;glfwGetWindowSize(window,&width,&height);g_dayPanel.layout(width,height);
+    if(g_dayPanel.active() || g_dayPanel.contains(x,y))
+    {g_daySpeed=glm::clamp(g_daySpeed+(float)yoffset*.05f,.05f,4.0f);return;}
+    if(g_atvDriveMode)
+    {
+        g_atvCameraDistance=glm::clamp(g_atvCameraDistance-(float)yoffset*.5f,3.5f,12.0f);
+        return;
+    }
     camera.handleScroll(yoffset);
 }

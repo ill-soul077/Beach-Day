@@ -70,6 +70,11 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <LocalDebuggerWorkingDirectory>$(ProjectDir)</LocalDebuggerWorkingDirectory>
+    <OutDir>$(ProjectDir)build\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)build\obj\$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <IncludePath>$(ProjectDir)Libraries\include;$(IncludePath)</IncludePath>
     <LibraryPath>$(ProjectDir)Libraries\lib;$(LibraryPath)</LibraryPath>
@@ -159,31 +164,16 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="EBO.cpp" />
-    <ClCompile Include="glad.c" />
+    <ClCompile Include="Libraries\glad.c" />
     <ClCompile Include="Main.cpp" />
-    <ClCompile Include="shaderClass.cpp" />
-    <ClCompile Include="VAO.cpp" />
-    <ClCompile Include="VBO.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="default.frag" />
-    <None Include="default.vert" />
-    <None Include="skybox.frag" />
-    <None Include="skybox.vert" />
-    <None Include="water.frag" />
-    <None Include="water.vert" />
+    <None Include="README.md" />
+    <None Include="proposal.pdf" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Camera.h" />
-    <ClInclude Include="EBO.h" />
-    <ClInclude Include="MeshPrimitives.h" />
-    <ClInclude Include="SceneObjects.h" />
-    <ClInclude Include="shaderClass.h" />
-    <ClInclude Include="Skybox.h" />
-    <ClInclude Include="TextureManager.h" />
-    <ClInclude Include="VAO.h" />
-    <ClInclude Include="VBO.h" />
+    <ClInclude Include="Scene.h" />
+    <ClInclude Include="Rendering.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
