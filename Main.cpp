@@ -595,6 +595,19 @@ int main()
         rightPalmMat = glm::rotate(rightPalmMat, glm::radians(-45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         rightPalmMat = glm::scale(rightPalmMat, glm::vec3(1.20f));
 
+        // Additional Hero Leaning Coastal Palms (Matching the tropical reference photo)
+        glm::mat4 farLeftPalm = glm::translate(glm::mat4(1.0f), glm::vec3(-48.0f, getCoastalTerrainElevation(-48.0f, 24.0f), 24.0f));
+        farLeftPalm = glm::rotate(farLeftPalm, glm::radians(52.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        farLeftPalm = glm::scale(farLeftPalm, glm::vec3(1.30f));
+
+        glm::mat4 farRightPalm = glm::translate(glm::mat4(1.0f), glm::vec3(48.0f, getCoastalTerrainElevation(48.0f, 23.0f), 23.0f));
+        farRightPalm = glm::rotate(farRightPalm, glm::radians(-58.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        farRightPalm = glm::scale(farRightPalm, glm::vec3(1.35f));
+
+        glm::mat4 centerDunePalm = glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, getCoastalTerrainElevation(2.0f, 18.0f), 18.0f));
+        centerDunePalm = glm::rotate(centerDunePalm, glm::radians(88.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        centerDunePalm = glm::scale(centerDunePalm, glm::vec3(1.25f));
+
         // Beach utility vehicle and lighthouse landmark.
         glm::mat4 fourWDMat = beachATVTransform(g_atvState);
 
@@ -621,6 +634,7 @@ int main()
         // terrain rising gradually toward the central hill.
         auto renderOpaqueScene=[&]() {
         drawIslandTerrainBackdrop(shaderProgram, islandTerrainMesh, cubeMesh, sphereMesh,&texManager,g_useTextures);
+        drawBackgroundPalmForest(shaderProgram, cubeMesh, sphereMesh, windSway, &texManager, g_useTextures);
         tropicalVegetation.draw(shaderProgram,currentFrame);
         nightLights.draw(shaderProgram,cubeMesh,sphereMesh,g_dayTime);
 
@@ -632,11 +646,14 @@ int main()
         // 2. Coastal Boulders & Rocks (FLAT SHADING for faceted low-detail geometry)
         drawRocks(shaderProgram, cubeMesh, sphereMesh);
 
-        // 3. Foreground Palm Trees (Phong Shading + Swaying Fronds + Palm Leaf Texture)
+        // 3. Foreground & Dune Hero Palm Trees (Phong Shading + Swaying Fronds + Palm Leaf Texture)
         drawPalmTree(shaderProgram, cubeMesh, sphereMesh, leftPalmMat, g_palmTrunkCurve, windSway, &texManager, g_useTextures);
         drawPalmTree(shaderProgram, cubeMesh, sphereMesh, backLeftPalm, -g_palmTrunkCurve * 0.75f, windSway, &texManager, g_useTextures);
         drawPalmTree(shaderProgram, cubeMesh, sphereMesh, backRightPalm, g_palmTrunkCurve * 0.85f, windSway, &texManager, g_useTextures);
         drawPalmTree(shaderProgram, cubeMesh, sphereMesh, rightPalmMat, -g_palmTrunkCurve * 0.85f, windSway, &texManager, g_useTextures);
+        drawPalmTree(shaderProgram, cubeMesh, sphereMesh, farLeftPalm, g_palmTrunkCurve * 1.15f, windSway, &texManager, g_useTextures);
+        drawPalmTree(shaderProgram, cubeMesh, sphereMesh, farRightPalm, -g_palmTrunkCurve * 1.20f, windSway, &texManager, g_useTextures);
+        drawPalmTree(shaderProgram, cubeMesh, sphereMesh, centerDunePalm, g_palmTrunkCurve * 0.90f, windSway, &texManager, g_useTextures);
 
         // Distinct tropical species: broad banana leaves and spiky pandanus
         // crowns break up the repeated coconut-palm silhouette.
@@ -645,7 +662,11 @@ int main()
             glm::vec3(-25.0f, 0.0f, -36.0f), glm::vec3(7.0f, 0.0f, -48.0f),
             glm::vec3(-48.0f, 0.0f, -72.0f), glm::vec3(43.0f, 0.0f, -80.0f),
             glm::vec3(-55.0f, 0.0f, -113.0f), glm::vec3(52.0f, 0.0f, -126.0f),
-            glm::vec3(-37.0f, 0.0f, -158.0f), glm::vec3(31.0f, 0.0f, -181.0f)
+            glm::vec3(-37.0f, 0.0f, -158.0f), glm::vec3(31.0f, 0.0f, -181.0f),
+            glm::vec3(-18.0f, 0.0f, 15.0f), glm::vec3(22.0f, 0.0f, 16.0f),
+            glm::vec3(-38.0f, 0.0f, 20.0f), glm::vec3(39.0f, 0.0f, 19.0f),
+            glm::vec3(-60.0f, 0.0f, -45.0f), glm::vec3(62.0f, 0.0f, -40.0f),
+            glm::vec3(-15.0f, 0.0f, -210.0f), glm::vec3(18.0f, 0.0f, -205.0f)
         };
         for (const glm::vec3& p : bananaPositions)
         {
@@ -659,7 +680,10 @@ int main()
             glm::vec3(19.0f, 0.0f, -61.0f), glm::vec3(-31.0f, 0.0f, -70.0f),
             glm::vec3(61.0f, 0.0f, -54.0f), glm::vec3(-62.0f, 0.0f, -91.0f),
             glm::vec3(60.0f, 0.0f, -111.0f), glm::vec3(-53.0f, 0.0f, -139.0f),
-            glm::vec3(44.0f, 0.0f, -166.0f), glm::vec3(-24.0f, 0.0f, -196.0f)
+            glm::vec3(44.0f, 0.0f, -166.0f), glm::vec3(-24.0f, 0.0f, -196.0f),
+            glm::vec3(-52.0f, 0.0f, 14.0f), glm::vec3(54.0f, 0.0f, 12.0f),
+            glm::vec3(-5.0f, 0.0f, 22.0f), glm::vec3(8.0f, 0.0f, 21.0f),
+            glm::vec3(-70.0f, 0.0f, -120.0f), glm::vec3(68.0f, 0.0f, -135.0f)
         };
         for (const glm::vec3& p : pandanusPositions)
         {

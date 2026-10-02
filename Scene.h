@@ -2918,8 +2918,8 @@ inline void drawCoastalDunesAndHills(
 
 // ============================================================================
 // OBJECT 8C: BACKDROP PALM FOREST (LUSH HORIZON ENCLOSURE)
-// Natural palm groves lining the back of the dunes across the entire 1.2km coast.
-// Leaves the beach shoreline completely open and infinite.
+// Coastal coconut palm groves along the dunes framing the entire island.
+// Outward-leaning trunks curve naturally towards the sea like real atoll palms.
 // ============================================================================
 inline void drawBackgroundPalmForest(
     Shader& shader,
@@ -2936,40 +2936,52 @@ inline void drawBackgroundPalmForest(
         float rotY;
     };
 
+    // 34 perimeter palms carefully positioned on safe coastal dune ridges (shore ~23-26m)
+    // with outward-facing yaw angles so trunks naturally arch out over the beach/water.
     const BackdropTree bgTrees[] = {
-        // Far West Coast Palms (X = -180 to -60, Z = -22 to -30)
-        { -180.0f, -28.0f, 1.35f,  3.2f,  25.0f },
-        { -150.0f, -25.0f, 1.25f, -2.8f, -15.0f },
-        { -125.0f, -24.0f, 1.30f,  3.5f,  40.0f },
-        { -100.0f, -23.0f, 1.20f, -3.0f, -20.0f },
-        {  -80.0f, -25.0f, 1.40f,  3.8f,  35.0f },
-        {  -60.0f, -23.0f, 1.25f, -2.5f, -30.0f },
-        {  -45.0f, -24.0f, 1.15f,  3.0f,  15.0f },
+        // South-facing dunes (framing the resort and loungers)
+        {   0.0f,   14.8f, 1.25f,  3.4f,   90.0f },
+        { -15.0f,   18.5f, 1.35f, -3.8f,   75.0f },
+        {  16.0f,   18.0f, 1.30f,  3.6f,  105.0f },
+        { -28.0f,    8.5f, 1.20f, -3.2f,   65.0f },
+        {  29.0f,    9.0f, 1.40f,  4.0f,  115.0f },
+        { -42.0f,   -2.0f, 1.30f, -3.5f,   55.0f },
+        {  44.0f,   -1.5f, 1.25f,  3.7f,  125.0f },
 
-        // Central Rear Dune Grove (X = -32 to +32, Z = -24 to -30)
-        {  -32.0f, -26.0f, 1.30f, -3.2f,  50.0f },
-        {  -22.0f, -25.0f, 1.25f,  3.4f, -25.0f },
-        {  -12.0f, -26.0f, 1.35f, -3.6f,  60.0f },
-        {   -4.0f, -25.0f, 1.40f,  3.8f,  25.0f },
-        {    6.0f, -26.0f, 1.30f,  3.2f,  35.0f },
-        {   16.0f, -24.0f, 1.20f, -2.8f, -40.0f },
-        {   28.0f, -25.0f, 1.35f,  3.6f,  20.0f },
+        // East Coast Dune Ridge (facing the rising sun and eastern reef)
+        {  62.0f,  -12.0f, 1.35f,  3.6f,  140.0f },
+        {  76.0f,  -28.0f, 1.40f,  3.8f,  150.0f },
+        {  86.0f,  -48.0f, 1.25f,  3.2f,  165.0f },
+        {  92.0f,  -72.0f, 1.45f,  4.2f,  180.0f },
+        {  94.0f, -100.0f, 1.30f,  3.5f,  185.0f },
+        {  92.0f, -125.0f, 1.35f,  3.7f,  190.0f },
+        {  84.0f, -152.0f, 1.40f,  3.9f,  205.0f },
+        {  70.0f, -178.0f, 1.25f,  3.3f,  220.0f },
+        {  52.0f, -202.0f, 1.35f,  3.6f,  235.0f },
 
-        // Far East Coast Palms (X = +45 to +185, Z = -22 to -30)
-        {   45.0f, -24.0f, 1.25f, -3.0f, -15.0f },
-        {   65.0f, -23.0f, 1.35f,  3.5f,  30.0f },
-        {   85.0f, -25.0f, 1.20f, -2.6f, -35.0f },
-        {  110.0f, -24.0f, 1.40f,  3.8f,  15.0f },
-        {  135.0f, -26.0f, 1.30f, -3.4f,  45.0f },
-        {  160.0f, -25.0f, 1.25f,  2.9f, -20.0f },
-        {  185.0f, -28.0f, 1.35f, -3.5f,  35.0f },
+        // North-East & North Headland (dramatic wind-swept bluffs)
+        {  32.0f, -220.0f, 1.40f,  4.0f,  250.0f },
+        {  12.0f, -232.0f, 1.30f,  3.5f,  265.0f },
+        {  -8.0f, -234.0f, 1.45f, -4.2f,  275.0f },
+        { -28.0f, -224.0f, 1.35f, -3.8f,  290.0f },
 
-        // Elevated Deep Background Ridge Palms (Z = -40 to -52)
-        { -120.0f, -42.0f, 1.55f,  3.0f,  10.0f },
-        {  -60.0f, -40.0f, 1.60f, -3.5f, -30.0f },
-        {    0.0f, -44.0f, 1.65f,  4.0f,  15.0f },
-        {   60.0f, -40.0f, 1.55f, -3.2f, -25.0f },
-        {  120.0f, -42.0f, 1.50f,  3.5f,  40.0f }
+        // West Coast Dune Ridge (facing the sunset)
+        { -48.0f, -204.0f, 1.30f, -3.4f,  305.0f },
+        { -66.0f, -180.0f, 1.40f, -3.9f,  320.0f },
+        { -78.0f, -154.0f, 1.25f, -3.2f,  335.0f },
+        { -88.0f, -128.0f, 1.45f, -4.1f,  350.0f },
+        { -90.0f, -100.0f, 1.35f, -3.7f,    0.0f },
+        { -86.0f,  -74.0f, 1.30f, -3.5f,   15.0f },
+        { -78.0f,  -50.0f, 1.40f, -3.8f,   30.0f },
+        { -65.0f,  -26.0f, 1.25f, -3.3f,   45.0f },
+
+        // Elevated Interior Ridge Cluster (multi-tiered horizon layers)
+        { -20.0f,  -45.0f, 1.50f,  3.5f,   80.0f },
+        {  22.0f,  -46.0f, 1.55f, -3.6f,  100.0f },
+        { -35.0f,  -70.0f, 1.60f,  4.0f,   70.0f },
+        {  38.0f,  -72.0f, 1.65f, -3.8f,  110.0f },
+        { -45.0f, -135.0f, 1.50f,  3.7f,  315.0f },
+        {  48.0f, -138.0f, 1.55f, -3.5f,  215.0f }
     };
 
     for (const auto& t : bgTrees)
@@ -2983,25 +2995,34 @@ inline void drawBackgroundPalmForest(
 }
 
 // ============================================================================
-// OBJECT 8D: SAINT MARTIN-INSPIRED ISLAND BACKDROP
-// The ground is a triangulated heightfield (IslandTerrainMesh), never scaled
-// spheres. A dense irregular treeline follows the computed slopes.
+// OBJECT 8D: SAINT MARTIN-INSPIRED ISLAND BACKDROP & DENSE TROPICAL RAINFOREST
+// Triangulated island terrain blanketed in a dense, lush tropical rainforest
+// with multi-tiered broadleaf canopies and emergent towering coconut palms.
 // ============================================================================
 inline void drawIslandTerrainBackdrop(
     Shader& shader,
     const IslandTerrainMesh& terrain,
     const CubeMesh& cube,
-    const SphereMesh& sphere,const TextureManager* textures=nullptr,bool enableTextures=true)
+    const SphereMesh& sphere,
+    const TextureManager* textures = nullptr,
+    bool enableTextures = true)
 {
-    const glm::vec3 jungleDark(0.055f, 0.25f, 0.10f);
-    const glm::vec3 jungleMid(0.08f, 0.38f, 0.13f);
-    const glm::vec3 jungleSun(0.16f, 0.50f, 0.18f);
+    // Rich Tropical Foliage Color Palette (Layered Rainforest Canopy)
+    const glm::vec3 jungleDark(0.040f, 0.20f, 0.07f);    // Deep rainforest understory shadow
+    const glm::vec3 jungleMid(0.075f, 0.35f, 0.12f);     // Mature tropical canopy emerald
+    const glm::vec3 jungleEmerald(0.11f, 0.45f, 0.14f);  // Lush rainforest mid-canopy
+    const glm::vec3 jungleSun(0.18f, 0.54f, 0.16f);      // Sunlit tropical leaves
+    const glm::vec3 jungleGolden(0.24f, 0.60f, 0.18f);   // Bright sun-dappled canopy highlights
+    const glm::vec3 palmTrunk(0.42f, 0.28f, 0.16f);      // Coconut palm bark
+    const glm::vec3 coconutCol(0.28f, 0.16f, 0.08f);     // Tropical coconuts
+    const glm::vec3 palmLeaf1(0.14f, 0.58f, 0.16f);      // Vibrant palm frond green
+    const glm::vec3 palmLeaf2(0.18f, 0.66f, 0.20f);      // Bright sunlit frond green
 
     glUniform1i(glGetUniformLocation(shader.ID, "terrainPalette"), 1);
-    glUniform1i(glGetUniformLocation(shader.ID, "useTexture"),textures && enableTextures);
-    if(textures && enableTextures){textures->bind(TEX_SAND);glUniform1f(glGetUniformLocation(shader.ID,"texScale"),14);}
+    glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), textures && enableTextures);
+    if (textures && enableTextures) { textures->bind(TEX_SAND); glUniform1f(glGetUniformLocation(shader.ID, "texScale"), 14.0f); }
     glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 1);
-    glUniform1f(glGetUniformLocation(shader.ID,"seaLevel"),g_sceneSeaLevel);
+    glUniform1f(glGetUniformLocation(shader.ID, "seaLevel"), g_sceneSeaLevel);
     glm::mat4 identity(1.0f);
     glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, glm::value_ptr(identity));
     glm::vec3 baseColor(0.28f, 0.34f, 0.16f);
@@ -3013,49 +3034,131 @@ inline void drawIslandTerrainBackdrop(
     glUniform1i(glGetUniformLocation(shader.ID, "terrainPalette"), 0);
     glUniform1i(glGetUniformLocation(shader.ID, "useTexture"), 0);
     glUniform1i(glGetUniformLocation(shader.ID, "shadingMode"), 0);
-    if(textures && enableTextures)textures->unbind();
+    if (textures && enableTextures) textures->unbind();
 
-    // Distant broadleaf trees sit on the mesh rather than floating in front of
-    // it. Three offset crown lobes prevent a row of identical green balls.
-    for (int i = 0; i < 180; ++i)
+    // 1. DENSE MULTI-TIERED TROPICAL CANOPY (480 canopy clusters covering the mountain)
+    for (int i = 0; i < 480; ++i)
     {
-        float x = -105.0f + (float)((i * 73) % 211);
-        float z = 25.0f - (float)((i * 97) % 255);
-        if (getIslandSignedDistance(x, z) < 27.0f)
+        float x = -105.0f + 210.0f * islandHash(i + 47, 1);
+        float z = -250.0f + 290.0f * islandHash(i + 89, 2);
+        float shore = getIslandSignedDistance(x, z);
+        if (shore < 25.0f || shore > 92.0f)
             continue;
-        // Keep a readable clearing around the elevated lighthouse compound.
+        // Keep clearing around the elevated lighthouse compound
         float lighthouseDx = x + 6.0f;
         float lighthouseDz = z + 110.0f;
-        if (lighthouseDx * lighthouseDx + lighthouseDz * lighthouseDz < 15.0f * 15.0f)
+        if (lighthouseDx * lighthouseDx + lighthouseDz * lighthouseDz < 16.0f * 16.0f)
             continue;
+
         float baseY = getIslandBackdropElevation(x, z);
-        float h = 1.9f + (float)((i * 7) % 6) * 0.25f;
-        float crownScale = 1.05f + (float)((i * 11) % 7) * 0.08f;
+        float h = 2.2f + islandHash(i, 3) * 2.8f;
+        float crownScale = 1.35f + islandHash(i, 5) * 1.45f; // broad spreading canopy domes
 
-        glm::mat4 trunk = glm::translate(glm::mat4(1.0f), glm::vec3(x, baseY + h * 0.5f, z));
-        trunk = glm::rotate(trunk, glm::radians((float)((i * 13) % 9) - 4.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        trunk = glm::scale(trunk, glm::vec3(0.24f, h, 0.24f));
-        drawTransformedCube(shader, cube, trunk, glm::vec3(0.24f, 0.16f, 0.09f), 5.0f, 0.02f);
+        // Trunk
+        glm::mat4 trunk = glm::translate(glm::mat4(1.0f), glm::vec3(x, baseY + h * 0.45f, z));
+        trunk = glm::rotate(trunk, glm::radians(islandHash(i, 6) * 12.0f - 6.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        trunk = glm::scale(trunk, glm::vec3(0.28f * crownScale, h, 0.28f * crownScale));
+        drawTransformedCube(shader, cube, trunk, glm::vec3(0.22f, 0.15f, 0.08f), 5.0f, 0.02f);
 
-        for (int lobe = 0; lobe < 4; ++lobe)
+        // 5 Overlapping Canopy Spherical Lobes creating an unbroken green blanket
+        const float offsets[5][3] = {
+            { -0.78f,  0.05f,  0.20f },
+            {  0.72f,  0.10f, -0.15f },
+            {  0.05f,  0.75f, -0.22f },
+            {  0.15f,  0.22f,  0.68f },
+            { -0.20f, -0.15f, -0.55f }
+        };
+        for (int lobe = 0; lobe < 5; ++lobe)
         {
-            const float offsets[4][3] = {
-                { -0.72f, 0.05f,  0.18f }, { 0.66f, 0.12f, 0.05f },
-                {  0.02f, 0.68f, -0.24f }, { 0.10f, 0.18f, 0.62f }
-            };
             float ox = offsets[lobe][0] * crownScale;
             float oy = offsets[lobe][1] * crownScale;
             float oz = offsets[lobe][2] * crownScale;
             glm::mat4 crown = glm::translate(glm::mat4(1.0f), glm::vec3(x + ox, baseY + h + oy, z + oz));
-            crown = glm::rotate(crown, glm::radians((float)((i * 19 + lobe * 31) % 40)), glm::vec3(0.0f, 1.0f, 0.0f));
-            crown = glm::scale(crown, glm::vec3(1.25f, 1.40f, 1.15f) * crownScale);
-            glm::vec3 leaf = (lobe == 1) ? jungleSun : ((i % 3 == 0) ? jungleDark : jungleMid);
-            drawTransformedSphere(shader, sphere, crown, leaf, 5.0f, 0.02f);
+            crown = glm::rotate(crown, glm::radians(islandHash(i + lobe * 17, 7) * 60.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            crown = glm::scale(crown, glm::vec3(1.30f, 1.25f, 1.20f) * crownScale);
+
+            glm::vec3 leafCol;
+            int colIdx = (i + lobe) % 5;
+            if (colIdx == 0) leafCol = jungleDark;
+            else if (colIdx == 1) leafCol = jungleMid;
+            else if (colIdx == 2) leafCol = jungleEmerald;
+            else if (colIdx == 3) leafCol = jungleSun;
+            else leafCol = jungleGolden;
+
+            drawTransformedSphere(shader, sphere, crown, leafCol, 6.0f, 0.025f);
+        }
+    }
+
+    // 2. EMERGENT TOWERING COCONUT PALMS RISING ABOVE CANOPY (Like the reference photo!)
+    // Rising 8m to 15m high with graceful leaning curves, visible coconuts and starburst fronds.
+    for (int p = 0; p < 130; ++p)
+    {
+        float px = -100.0f + 200.0f * islandHash(p * 23 + 11, 3);
+        float pz = -245.0f + 280.0f * islandHash(p * 29 + 17, 4);
+        float pShore = getIslandSignedDistance(px, pz);
+        if (pShore < 24.5f || pShore > 88.0f)
+            continue;
+        float pLhDist = glm::length(glm::vec2(px + 6.0f, pz + 110.0f));
+        if (pLhDist < 16.0f)
+            continue;
+
+        float groundY = getCoastalTerrainElevation(px, pz);
+        float palmHeight = 8.5f + islandHash(p, 5) * 6.5f; // 8.5m to 15.0m tall!
+        float leanAngle = 8.0f + islandHash(p, 6) * 18.0f; // 8 to 26 deg lean outward
+        float outwardYaw = glm::degrees(atan2f(px, pz - (-100.0f))) + (islandHash(p, 7) * 30.0f - 15.0f);
+
+        // Hierarchical Leaning Palm Trunk (6 curved segments)
+        glm::mat4 palmNode = glm::translate(glm::mat4(1.0f), glm::vec3(px, groundY, pz));
+        palmNode = glm::rotate(palmNode, glm::radians(outwardYaw), glm::vec3(0.0f, 1.0f, 0.0f));
+
+        int segCount = 6;
+        float segLen = palmHeight / (float)segCount;
+        for (int s = 0; s < segCount; ++s)
+        {
+            float taper = 1.0f - ((float)s / (float)segCount) * 0.40f;
+            glm::mat4 segMat = glm::translate(palmNode, glm::vec3(0.0f, segLen * 0.5f, 0.0f));
+            segMat = glm::scale(segMat, glm::vec3(0.26f * taper, segLen * 1.08f, 0.26f * taper));
+            drawTransformedSphere(shader, sphere, segMat, (s % 2 == 0) ? palmTrunk : glm::vec3(0.32f, 0.20f, 0.12f), 8.0f, 0.04f);
+
+            palmNode = glm::translate(palmNode, glm::vec3(0.0f, segLen, 0.0f));
+            palmNode = glm::rotate(palmNode, glm::radians(leanAngle / (float)segCount), glm::vec3(1.0f, 0.0f, 0.0f));
+        }
+
+        // Coconuts nestled at crown
+        for (int c = 0; c < 4; ++c)
+        {
+            float cAngle = (float)c * 90.0f + 20.0f;
+            glm::mat4 cMat = glm::rotate(palmNode, glm::radians(cAngle), glm::vec3(0.0f, 1.0f, 0.0f));
+            cMat = glm::translate(cMat, glm::vec3(0.18f, -0.06f, 0.0f));
+            cMat = glm::scale(cMat, glm::vec3(0.22f, 0.26f, 0.22f));
+            drawTransformedSphere(shader, sphere, cMat, coconutCol, 12.0f, 0.08f);
+        }
+
+        // Starburst Palm Crown: 11 arching fronds radiating in 360 degrees
+        for (int f = 0; f < 11; ++f)
+        {
+            float frondYaw = (float)f * (360.0f / 11.0f) + islandHash(p, f) * 10.0f;
+            glm::mat4 frondBase = glm::rotate(palmNode, glm::radians(frondYaw), glm::vec3(0.0f, 1.0f, 0.0f));
+            frondBase = glm::rotate(frondBase, glm::radians(12.0f + islandHash(p, f + 3) * 14.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+            float frondLen = 3.6f + islandHash(p, f + 7) * 1.2f;
+            glm::mat4 frondStem = glm::translate(frondBase, glm::vec3(0.0f, 0.0f, frondLen * 0.45f));
+            frondStem = glm::scale(frondStem, glm::vec3(0.065f, 0.035f, frondLen));
+            drawTransformedCube(shader, cube, frondStem, palmTrunk, 16.0f, 0.05f);
+
+            // Drooping feather blades along frond
+            for (int seg = 1; seg <= 3; ++seg)
+            {
+                float zOffset = frondLen * (0.28f * (float)seg);
+                float bladeSpan = (1.10f - 0.22f * (float)seg) * 0.75f;
+                glm::mat4 blade = glm::translate(frondBase, glm::vec3(0.0f, -0.05f * (float)seg, zOffset));
+                blade = glm::rotate(blade, glm::radians(24.0f + 6.0f * (float)seg), glm::vec3(1.0f, 0.0f, 0.0f));
+                blade = glm::scale(blade, glm::vec3(bladeSpan * 2.0f, 0.018f, frondLen * 0.28f));
+                drawTransformedCube(shader, cube, blade, (f % 2 == 0) ? palmLeaf1 : palmLeaf2, 24.0f, 0.10f);
+            }
         }
     }
 }
-
-// ============================================================================
 // OBJECT 8E: ROBOT-RIDDEN BEACH QUAD
 // Four knobby driven tyres, front steering, suspension, tubular racks,
 // four auxiliary lamps, handlebars, mirrors and a seated robot rider.
