@@ -1,1 +1,38 @@
 /build/
+
+# Generated reports, presentation exports, and local study material
+/output/
+/tmp/
+
+# Keep the regression test sources; exclude one-off document/cleanup tooling
+/validation/*
+!/validation/*.cpp
+/StiltHouse.cpp
+
+# Machine-specific editor settings
+/.vs/
+/.vscode/
+*.vcxproj.user
+*.suo
+*.user
+
+# Compiler outputs and caches (do not ignore required Libraries/lib/*.lib)
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.ipch
+*.tlog
+__pycache__/
+*.py[cod]
+
+# Temporary files, logs, Office lock files, and local secrets
+*.log
+*.tmp
+~$*
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db

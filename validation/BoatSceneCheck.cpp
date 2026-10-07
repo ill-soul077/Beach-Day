@@ -165,7 +165,8 @@ static void verifyBeachRobots()
     {
         BeachRobotState turning;turning.active=true;auto start=turning.pos;float yaw=turning.heading;
         updateBeachRobot(turning,0,1,.25f,{});
-        require(glm::distance(start,turning.pos)<.001f&&fabsf(turning.heading-yaw)>20&&turning.gaitBlend>.5f,
+        float pivotAngle=fabsf(turning.heading-yaw);
+        require(glm::distance(start,turning.pos)<.001f&&pivotAngle>15&&pivotAngle<25&&turning.gaitBlend>.5f,
             "Turning in place lacks stepping animation or changes position");
     }
     BeachCircuit circuit;float heading;auto start=circuit.sample(0,&heading);
@@ -226,11 +227,42 @@ static void verifyBeachRobots()
     std::cout<<"PASS: seated seat/thigh/frame/foot clearances; held Enter, walking at 10/20/30/60 FPS, release/exit, solid contact/reverse and terrain-foot gait around full perimeter.\n";
 }
 
+static void verifyBoatContactsAndSea(){
+    std::vector<SolidObstacle> none;
+    auto obstacle=SolidObstacle::box(glm::rotate(glm::translate(glm::mat4(1),glm::vec3(500,0,500)),glm::radians(35.f),glm::vec3(0,1,0)),{1.f,3.f});
+    std::vector<SolidObstacle> boats{obstacle};glm::vec3 reference(0);
+    for(int fps:{10,20,30,60}){
+        BoatContactPose pose{{500,0,480},0};bool hit=false;
+        for(int frame=0;frame<fps*4;++frame){pose=sweepBoatMotion(pose.pos,pose.heading,pose.pos+glm::vec3(0,0,12.f/fps),pose.heading,none,boats);if(pose.blocked){hit=true;break;}}
+        require(hit&&boatPoseClear(pose.pos,pose.heading,none,boats),"Boat collision tunnels through another hull");
+        if(fps==10)reference=pose.pos;else require(glm::distance(reference,pose.pos)<.002f,"Boat contact depends on frame rate");
+        auto reverse=sweepBoatMotion(pose.pos,pose.heading,pose.pos-glm::vec3(0,0,1),pose.heading,none,boats);
+        require(!reverse.blocked,"Boat cannot reverse away from contact");
+    }
+    for(float heading:{0.f,90.f,180.f,270.f}){
+        float a=glm::radians(heading);glm::vec3 f(sinf(a),0,cosf(a)),centre(500,0,500);
+        std::vector<SolidObstacle> pole{SolidObstacle::circle(centre,.12f)};
+        auto contact=sweepBoatMotion(centre-f*15.f,heading,centre+f*15.f,heading,pole,none);
+        require(contact.blocked&&boatPoseClear(contact.pos,contact.heading,pole,none),"Boat swept footprint misses a thin post");
+    }
+    auto coast=sweepBoatMotion({0,0,110},180,{0,0,-110},180,none,none);
+    require(coast.blocked&&boatPoseClear(coast.pos,coast.heading,none,none),"Boat runs through the island");
+    require(!boatPoseClear({WaterGridMesh::boatLimit+1,0,500},0,none,none),"Boat leaves navigable ocean bounds");
+    require(WaterGridMesh::halfExtent>WaterGridMesh::cameraLimit+600+WaterGridMesh::viewDistance,"Ocean edge can enter an allowed camera frustum");
+    float previous=-1e30f;
+    for(int i=0;i<=300;++i){float t=i/300.f,u=2*t-1,old=copysignf(2600*powf(fabsf(u),1.6f),u);
+        float ocean=WaterGridMesh::coordinate(t,-WaterGridMesh::halfExtent,WaterGridMesh::halfExtent);
+        require(ocean>=previous,"Extended ocean grid folds back on itself");previous=ocean;
+        if(fabsf(old)<=700)require(fabsf(ocean-old)<.001f,"Ocean expansion changes near-island tessellation");
+    }
+    std::cout<<"PASS: swept boat/boat, shoreline and thin-post contacts, reverse-away at 10/20/30/60 FPS; ocean extent, preserved nearshore grid and camera-frustum edge clearance.\n";
+}
 int main()
 {
     try
     {
         verifyBeachRobots();
+        verifyBoatContactsAndSea();
         // Exercise inversion over open ocean and the near-shore shelf.
         for(float z=48;z<190;z+=7) for(float x=-25;x<26;x+=5)
         {

@@ -23,16 +23,18 @@ Camera camera(glm::vec3(0.0f, 1.2f, 0.0f), 11.0f);
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-// ============================================================================
-// PROPOSAL REQUIREMENTS STATE VARIABLES
-// ============================================================================
+//============================================================================
 // 1. Day-Cycle Simulation (Sunrise to Sunset transition)
 float g_dayTime       = 7.0f;    // 24-hour clock (e.g. 7.0 = 7:00 AM Sunrise)
 float g_daySpeed      = 0.35f;   // Hours per second
 bool  g_dayPaused     = false;
 LighthouseBeamState g_lighthouseBeam;
+bool g_lighthouseCutaway=false;
+int g_lighthouseLevel=-1;
+float g_lighthouseBaseHeight=0;
 DayCyclePanel g_dayPanel;
 ObjectGuideState g_objectGuide;
+BeaconControlPanel g_beaconPanel;
 bool g_showDiagnostics=false;
 bool g_vsync=true;
 std::string g_gpuRenderer;
@@ -70,6 +72,7 @@ struct DrivableBoatState
     float pitch              = 0.0f;   // Current smoothed pitch (deg)
     float roll               = 0.0f;   // Current smoothed roll (deg)
     float yawVelocity        = 0.0f;   // Angular yaw rate (deg/s) for momentum
+    bool blocked            = false;
 };
 
 DrivableBoatState g_boatState;
@@ -83,6 +86,11 @@ ATVBatteryState g_atvBattery;
 BeachCircuit g_beachCircuit;
 bool g_atvDriveMode = false; // [H] toggles beach-ring ATV driving
 BeachRobotState g_beachRobot;
+TowerClimbState g_towerRobot;
+int g_towerViewMode=0; // 0 free, 1 keeper robot tour, 2 observation gallery.
+bool g_towerFirstPerson=true;
+bool g_towerManual=false;
+float g_towerLookYaw=0,g_towerLookPitch=0;
 bool g_atvFirstPerson = false;
 float g_atvLookYaw = 0.0f, g_atvLookPitch = 0.0f, g_atvCameraDistance = 5.5f;
 
@@ -134,7 +142,7 @@ int main()
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetWindowFocusCallback(window,[](GLFWwindow*,int focused){
-        if(!focused){g_dayPanel.cancel();g_objectGuide.capturedButton=-1;camera.isDraggingOrbit=false;camera.isDraggingPan=false;}
+        if(!focused){g_dayPanel.cancel();g_beaconPanel.captured=false;g_beaconPanel.dragging=-1;g_objectGuide.capturedButton=-1;camera.isDraggingOrbit=false;camera.isDraggingPan=false;}
     });
 
     // 3. Load GLAD Function Pointers
@@ -195,8 +203,13 @@ int main()
     std::cout << "  Beach Resort Interactive Parameters:\n";
     std::cout << "    [F1]               : Show / hide object instruction sidebar (click sections; scroll)\n";
     std::cout << "    [F2]               : FPS / frame time / actual GPU renderer\n";
+    std::cout << "    [F3] / [F4]        : Lighthouse cutaway / cycle interior floors\n";
+    std::cout << "    [V] / [PAGE UP]    : Tower-top view / keeper robot stair climb\n";
+    std::cout << "    [E] / [SPACE]      : Climb POV-cutaway / pause (during tower tour)\n";
+    std::cout << "    [PAGE DOWN]        : Reset keeper robot and exit tower tour\n";
     std::cout << "    [ENTER]            : Control standing beach robot / Return to free camera\n";
     std::cout << "    [W/S] [A/D]        : Walk forward/backward and turn along dry beach path\n";
+    std::cout << "    [Q] / [HOME]       : Recharge walking robot beside panel / locate station\n";
     std::cout << "    [I]                : Open / close umbrella (works from any view)\n";
     std::cout << "    [1 / 2]            : Turn Beach Resort Robot Head Left / Right\n";
     std::cout << "    [3 / 4]            : Adjust Umbrella Tilt Angle\n";
@@ -222,13 +235,19 @@ int main()
     WaterDepthSkirtMesh waterSkirtMesh;
     IslandTerrainMesh islandTerrainMesh;
     FrustumMesh wheelCylinderMesh(0.5f, 0.5f, 32);
-    FrustumMesh lighthouseTowerMesh(0.5f, 0.34f, 40);
+    FrustumMesh lighthouseTowerMesh(0.5f, 0.34f, 72, true, .065f);
+    FrustumMesh lighthouseCutawayMesh(0.5f, 0.34f, 36, true, .065f,3.141592654f,3.141592654f);
+    LighthouseInterior lighthouseInterior;
+    LighthouseEntranceShell lighthouseEntrance;
     FrustumMesh lighthouseRoofMesh(0.55f, 0.0f, 40);
     FrustumMesh lighthouseBeamMesh(0.5f,LighthouseLanternDimensions::beamTipRadius,48,false);
     PrismMesh prismMesh;
     FrustumMesh stiltCylinderMesh(0.5f, 0.5f, 24);
     FrustumMesh stiltConeMesh(0.5f, 0.0f, 24);
     LighthouseSite lighthouseSite;
+    g_lighthouseBaseHeight=lighthouseSite.baseHeight();
+    camera.towerBaseHeight=g_lighthouseBaseHeight;
+    g_towerRobot.reset(g_lighthouseBaseHeight);
     std::cout<<"[Lighthouse] Grounded summit foundation active; base height "<<lighthouseSite.baseHeight()<<" m.\n";
 
     // Start on the intended establishing composition instead of a close crop.
@@ -267,6 +286,23 @@ int main()
 
         // Process Input & Camera
         processInput(window);
+        if(g_towerViewMode==1&&g_towerManual){
+            float movement=0;
+            if(glfwGetKey(window,GLFW_KEY_W)==GLFW_PRESS||glfwGetKey(window,GLFW_KEY_UP)==GLFW_PRESS)movement+=1;
+            if(glfwGetKey(window,GLFW_KEY_S)==GLFW_PRESS||glfwGetKey(window,GLFW_KEY_DOWN)==GLFW_PRESS)movement-=1;
+            if(g_towerRobot.finished()&&movement<0&&fabsf(g_towerRobot.galleryAngle)>.001f){
+                float amount=.55f*atvElapsed;
+                g_towerRobot.galleryAngle+=glm::clamp(-g_towerRobot.galleryAngle,-amount,amount);
+            }else g_towerRobot.moveManually(movement,realElapsed);
+        }else g_towerRobot.update(realElapsed);
+        if(g_towerViewMode){
+            float turn=(glfwGetKey(window,GLFW_KEY_D)==GLFW_PRESS||glfwGetKey(window,GLFW_KEY_RIGHT)==GLFW_PRESS?1.f:0.f)
+                      -(glfwGetKey(window,GLFW_KEY_A)==GLFW_PRESS||glfwGetKey(window,GLFW_KEY_LEFT)==GLFW_PRESS?1.f:0.f);
+            if(g_towerRobot.finished())g_towerRobot.galleryAngle=std::remainder(g_towerRobot.galleryAngle+rightTurnYaw(turn)*.55f*atvElapsed,6.283185307f);
+            else g_towerLookYaw=std::remainder(g_towerLookYaw+rightTurnYaw(turn)*90*atvElapsed,360.f);
+        }
+        g_beaconPanel.visible=g_towerViewMode&&g_towerRobot.finished();
+        if(!g_beaconPanel.visible){g_beaconPanel.captured=false;g_beaconPanel.dragging=-1;}
         g_umbrellaAnimation.update(realElapsed);
         const float umbrellaOpening=g_umbrellaAnimation.openAmount;
         float robotWalk=0,robotTurn=0;
@@ -292,9 +328,25 @@ int main()
             if(g_atvState.completedTours>completed)
                 std::cout << "[ATV] Full island circuit completed. Back at the start.\n";
         }
-        camera.riderViewActive = g_atvDriveMode && g_atvFirstPerson;
+        camera.riderViewActive = (g_atvDriveMode && g_atvFirstPerson)||g_towerViewMode==2||
+            (g_towerViewMode==1&&g_towerFirstPerson);
         atvTracks.update(g_atvState);
-        if(g_beachRobot.active)
+        if(g_towerViewMode){
+            camera.isTransitioning=false;
+            camera.projMode=PROJ_PERSPECTIVE;
+            camera.currentPresetIndex=g_towerViewMode==2?VIEW_TOWER_TOP:-1;
+            camera.riderEye=g_towerRobot.eye();
+            float heading=g_towerRobot.heading();
+            float yaw=glm::radians(heading+g_towerLookYaw);
+            float defaultPitch=g_towerRobot.finished()?0.f:-28.f;
+            float tilt=glm::radians(glm::clamp(defaultPitch+g_towerLookPitch,-65.f,60.f));
+            camera.riderDirection=glm::normalize(glm::vec3(sinf(yaw)*cosf(tilt),sinf(tilt),cosf(yaw)*cosf(tilt)));
+            camera.target={-6,camera.riderEye.y-.7f,-110};
+            camera.distance=g_towerRobot.progress<g_towerRobot.spiralBegin?
+                glm::mix(g_towerRobot.access.footZ()+4.f,8.5f,g_towerRobot.progress/g_towerRobot.spiralBegin):8.5f;
+            camera.yaw=8;camera.pitch=8;
+        }
+        else if(g_beachRobot.active)
         {
             camera.isTransitioning=false;camera.currentPresetIndex=-1;
             camera.target=glm::mix(camera.target,g_beachRobot.pos+glm::vec3(0,1.05f,0),1-expf(-8*atvElapsed));
@@ -457,8 +509,6 @@ int main()
         // ENVIRONMENTAL SIMULATION DYNAMICS
         // ====================================================================
         g_sceneSeaLevel=coastalTideLevel(tideHours);
-        nightLights.bind(shaderProgram,g_dayTime);
-        nightLights.bind(waterShader,g_dayTime);
         shaderProgram.Activate();
         glUniform1i(shaderProgram.location("forceShadingMode"),g_shadingMode);
         waterShader.Activate();
@@ -496,7 +546,7 @@ int main()
         // --- Rudder Steering with Momentum ---
         if (steerInput != 0.0f)
         {
-            g_boatState.rudderAngle += steerInput * g_boatState.rudderSpeed * deltaTime;
+            g_boatState.rudderAngle += rightTurnYaw(steerInput) * g_boatState.rudderSpeed * deltaTime;
             g_boatState.rudderAngle = glm::clamp(g_boatState.rudderAngle, -35.0f, 35.0f);
         }
         else
@@ -555,6 +605,7 @@ int main()
         float turnForce = rudderNorm * (flowSpeed / g_boatState.maxSpeed) * 85.0f;
         // Apply angular momentum: yaw velocity smoothly integrates turn force
         g_boatState.yawVelocity += (turnForce - g_boatState.yawVelocity * 3.2f) * deltaTime;
+        float previousBoatHeading=g_boatState.heading;
         g_boatState.heading += g_boatState.yawVelocity * deltaTime;
 
         // --- Propeller Visual Spin ---
@@ -569,16 +620,19 @@ int main()
         g_boatVelocity = glm::mix(g_boatVelocity, forwardDir * g_boatState.speed,
                                   1.0f - expf(-3.5f * deltaTime));
         glm::vec3 candidate = g_boatState.pos + g_boatVelocity * deltaTime;
-        bool navigable = fabsf(candidate.x) < 900.0f && fabsf(candidate.z) < 900.0f;
-        // Check the full rendered hull, not a straight line across the beach.
-        for (float along : {-3.3f, 0.0f, 3.3f})
-            for (float across : {-1.2f, 1.2f})
-            {
-                glm::vec3 sample = candidate + forwardDir * along + rightDir * across;
-                navigable = navigable && getIslandSignedDistance(sample.x, sample.z) < -6.0f;
-            }
-        if (navigable) g_boatState.pos = candidate;
-        else { g_boatState.speed *= expf(-10.0f * deltaTime); g_boatVelocity *= 0.4f; }
+        auto mooredHull=[](glm::vec3 p,float heading,float scale){
+            auto pose=glm::rotate(glm::translate(glm::mat4(1),p),glm::radians(heading),glm::vec3(0,1,0));
+            // Protect the entire mooring swing, so an idle motorboat is not
+            // intersected later by the sailboat's automatic drift/rotation.
+            return SolidObstacle::box(pose,{.66f*scale+.85f,2.24f*scale+.75f});
+        };
+        std::vector<SolidObstacle> boatObstacles={
+            mooredHull({-12,0,108},35,1.30f),mooredHull({8.5f,0,142},8,1.15f)};
+        auto contact=sweepBoatMotion(g_boatState.pos,previousBoatHeading,candidate,g_boatState.heading,g_atvObstacles,boatObstacles);
+        g_boatState.pos=contact.pos;g_boatState.heading=contact.heading;g_boatState.blocked=contact.blocked;
+        if(contact.blocked){g_boatState.speed=0;g_boatVelocity=glm::vec3(0);g_boatState.yawVelocity=0;}
+        radHeading=glm::radians(g_boatState.heading);
+        forwardDir=glm::vec3(sinf(radHeading),0,cosf(radHeading));
 
         glm::mat4 boatMat1 = floatingBoatTransform(g_motorFloat, g_boatState.pos,
             g_boatState.heading, 1.65f, currentFrame, deltaTime,
@@ -672,6 +726,10 @@ int main()
 
         // Beach utility vehicle and lighthouse landmark.
         glm::mat4 fourWDMat = beachATVTransform(g_atvState);
+        auto atvLightBody=beachATVBodyTransform(fourWDMat,g_atvState.bodyPitch,g_atvState.bodyRoll);
+        nightLights.bind(shaderProgram,g_dayTime,&atvLightBody);
+        nightLights.bind(waterShader,g_dayTime,&atvLightBody);
+        shaderProgram.Activate();
 
         // Set the navigation tower on the high north-west shoulder, well above
         // the beach and storm-surge line rather than directly on flat sand.
@@ -694,6 +752,7 @@ int main()
         // ====================================================================
         // Complete bounded island: submerged shelf, irregular beach ring, and
         // terrain rising gradually toward the central hill.
+        bool renderingShadow=false;
         auto renderOpaqueScene=[&]() {
         drawIslandTerrainBackdrop(shaderProgram, islandTerrainMesh, cubeMesh, sphereMesh,&texManager,g_useTextures,false);
         forestBatches.draw(shaderProgram,texManager,g_useTextures);
@@ -744,17 +803,45 @@ int main()
         drawRobot(shaderProgram, cubeMesh, sphereMesh, robotMat1, g_robotHeadYaw, -5.0f, g_robotLeftArm, g_robotRightArm, 0,.16f,&seatedLegs);
         drawRobot(shaderProgram,cubeMesh,sphereMesh,walkingRobotPose.transform,0,0,
             walkingRobotPose.leftArm,walkingRobotPose.rightArm,0,.16f,&walkingRobotPose.legs);
+        // Dedicated side charging socket and a battery indicator on the back.
+        auto robotPort=glm::translate(walkingRobotPose.transform,{.344f,.47f,0});
+        drawTransformedCube(shaderProgram,cubeMesh,glm::scale(robotPort,{.025f,.16f,.13f}),glm::vec3(.12f,.15f,.17f),32,.3f);
+        for(int i=0;i<4;++i){
+            auto bar=glm::translate(walkingRobotPose.transform,{-.12f+i*.08f,.47f,-.19f});
+            glm::vec3 color=g_beachRobot.batteryPercent>(i*25)?glm::vec3(.14f,.85f,.40f):glm::vec3(.14f,.18f,.17f);
+            drawTransformedCube(shaderProgram,cubeMesh,glm::scale(bar,{.055f,.11f,.015f}),color,8,0,1);
+        }
         drawUmbrella(shaderProgram, cubeMesh, sphereMesh, canopyGoreMesh, umbrellaMat1, dynamicUmbrellaTilt, 3.4f, 1.0f,umbrellaOpening);
 
         // 8B. Island transport and navigation landmark
         drawBeach4WD(shaderProgram, cubeMesh, sphereMesh, wheelCylinderMesh, fourWDMat,
                      g_atvState.wheelSpin, g_atvState.steering, g_atvLookYaw,true,
-                     g_atvState.bodyPitch,g_atvState.bodyRoll);
-        drawATVChargingStation(shaderProgram,cubeMesh,wheelCylinderMesh,chargingStationMat,g_atvBattery.charging,g_atvBattery.percent,
-            glm::vec3(fourWDMat*glm::vec4(.48f,.9f,-.5f,1)));
+                     g_atvState.bodyPitch,g_atvState.bodyRoll,islandNightIntensity(g_dayTime));
+        drawATVChargingStation(shaderProgram,cubeMesh,wheelCylinderMesh,chargingStationMat,
+            g_atvBattery.charging||g_beachRobot.charging,
+            g_beachRobot.charging?g_beachRobot.batteryPercent:g_atvBattery.percent,
+            g_beachRobot.charging?glm::vec3(walkingRobotPose.transform*glm::vec4(.365f,.47f,0,1)):
+                glm::vec3(fourWDMat*glm::vec4(.48f,.9f,-.5f,1)));
         lighthouseSite.draw(shaderProgram);
-        drawLighthouse(shaderProgram, cubeMesh, sphereMesh, lighthouseTowerMesh,
-                       wheelCylinderMesh, lighthouseRoofMesh, lighthouseMat, currentFrame,lighthouseNightIntensity);
+        lighthouseSite.drawAccessRails(shaderProgram,cubeMesh,wheelCylinderMesh);
+        glUniform3fv(shaderProgram.location("lighthouseLightOrigin"),1,glm::value_ptr(glm::vec3(lighthouseMat[3])));
+        if(g_beaconPanel.power==1)lighthouseNightIntensity=1;
+        else if(g_beaconPanel.power==2)lighthouseNightIntensity=0;
+        float towerRoomIntensity=glm::max(lighthouseNightIntensity,g_towerViewMode?.75f:0.f);
+        glUniform1f(shaderProgram.location("lighthouseInteriorIntensity"),towerRoomIntensity);
+        bool towerCutaway=g_lighthouseCutaway||(g_towerViewMode==1&&!g_towerFirstPerson);
+        drawLighthouse(shaderProgram, cubeMesh, sphereMesh, towerCutaway?lighthouseCutawayMesh:lighthouseTowerMesh,
+                       wheelCylinderMesh, lighthouseRoofMesh, lighthouseMat, currentFrame,lighthouseNightIntensity,towerCutaway,&lighthouseEntrance);
+        // Opaque masonry naturally conceals the rooms until cutaway is enabled.
+        lighthouseInterior.draw(shaderProgram,cubeMesh,wheelCylinderMesh,lighthouseMat,
+            towerCutaway,g_lighthouseBeam.heading,towerRoomIntensity);
+        bool keeperEyeView=camera.riderViewActive&&glm::distance(camera.riderEye,g_towerRobot.eye())<.65f;
+        if(renderingShadow||!keeperEyeView){
+            auto keeper=g_towerRobot.pose();
+            drawRobot(shaderProgram,cubeMesh,sphereMesh,keeper.transform,glm::clamp(g_towerLookYaw,-75.f,75.f),0,
+                keeper.leftArm,keeper.rightArm,0,.16f,&keeper.legs);
+        }
+        glUniform1f(shaderProgram.location("lighthouseInteriorIntensity"),0);
 
         // 8C. Raised Tropical Stilt House
         drawTropicalStiltHouse(shaderProgram, cubeMesh, sphereMesh, stiltCylinderMesh,
@@ -770,9 +857,11 @@ int main()
         bool shadowsActive=g_renderShadows && lightDir.y>.025f;
         if(shadowsActive)
         {
+            renderingShadow=true;
             sunShadows.begin(shaderProgram,lightDir,glm::clamp(camera.distance*1.3f,40.0f,300.0f),camera.target+glm::vec3(0,10,0));
             renderOpaqueScene();
             sunShadows.end(shaderProgram,framebufferWidth,framebufferHeight,view,proj);
+            renderingShadow=false;
         }
         sunShadows.bind(shaderProgram,shadowsActive);
         renderOpaqueScene();
@@ -864,8 +953,50 @@ int main()
         else if(g_boatPilotMode){status<<"BOAT "<<fabsf(g_boatState.speed)<<" M/S";hud.push_back(status.str());hud.push_back("WASD/ARROWS DRIVE  F EXIT");}
         else if(g_beachRobot.active){status<<"ROBOT "<<fabsf(g_beachRobot.speed)<<" M/S - "<<(g_beachRobot.blocked?"PATH BLOCKED":fabsf(g_beachRobot.speed)>.05f?"WALKING":"STANDING");
             hud.push_back(status.str());hud.push_back("W/S WALK  A/D TURN  ENTER EXIT - STAY ON BEACH PATH");}
-        else hud.push_back("ENTER WALK ROBOT  H ATV  F BOAT  F1 GUIDE  F2 STATS");
+        else if(g_towerViewMode==1){
+            std::string stage=g_towerRobot.finished()?"TOP GALLERY":g_towerRobot.progress<g_towerRobot.spiralBegin?"ENTRANCE STEPS":
+                g_towerRobot.progress<=g_towerRobot.spiralEnd?"SPIRAL STAIRS":"ONTO GALLERY";
+            hud.push_back("KEEPER ROBOT - "+stage+(g_towerManual?" - MANUAL":g_towerRobot.paused?" - PAUSED":" - AUTO"));
+            if(g_towerRobot.progress>=g_towerRobot.spiralBegin&&!g_towerRobot.finished()){
+                int step=glm::clamp((int)g_towerRobot.progress-g_towerRobot.spiralBegin+1,1,72);
+                hud.push_back("STEP "+std::to_string(step)+" / 72");
+            }
+            hud.push_back("W/S UP/DOWN STAIRS  E POV/CUTAWAY  ENTER EXIT");
+            hud.push_back("SPACE AUTO/PAUSE  PAGEUP RESTART  PAGEDOWN RESET");
+            hud.push_back(g_towerRobot.finished()?"LEFT DRAG LOOK - A/D WALK GALLERY":"LEFT DRAG / A/D LOOK - V TOP VIEW");
+        }
+        else if(g_towerViewMode==2){hud.push_back("KEEPER ROBOT AT TOP - S DESCEND  E POV/CUTAWAY");
+            hud.push_back("SPACE AUTO CLIMB  ENTER CONTROL  PAGEDOWN RESET");
+            hud.push_back("LEFT DRAG LOOK  A/D WALK GALLERY  T EXTERIOR");}
+        else hud.push_back("ENTER WALK ROBOT  H ATV  F BOAT  V TOWER TOP  PAGEUP CLIMB");
         hud.push_back(std::string("I OPEN/CLOSE UMBRELLA - ")+g_umbrellaAnimation.label());
+        if(g_beachRobot.active||g_beachRobot.charging){
+            std::ostringstream battery;battery<<std::fixed<<std::setprecision(1)<<"ROBOT BATTERY "<<g_beachRobot.batteryPercent<<"%";
+            if(g_beachRobot.charging)battery<<(g_beachRobot.batteryPercent>=100?" FULL - Q DISCONNECT":" CHARGING - Q DISCONNECT");
+            else if(g_beachRobot.batteryPercent<=0)battery<<" EMPTY";
+            hud.push_back(battery.str());
+            if(!g_beachRobot.charging){
+                if(g_atvBattery.charging)hud.push_back("CHARGER BUSY - DISCONNECT ATV FIRST");
+                else if(canConnectRobotCharger(g_beachRobot,g_beachCircuit,g_atvObstacles,&g_atvState))hud.push_back("Q CONNECT ROBOT CHARGER");
+                else {
+                    glm::vec3 toStation=glm::vec3(chargingStationMat*glm::vec4(1.23f,0,.65f,1))-g_beachRobot.pos;
+                    float bearing=std::remainder(glm::degrees(atan2f(toStation.x,toStation.z))-g_beachRobot.heading,360.f);
+                    std::ostringstream direction;direction<<"CHARGER "<<(int)robotChargerDistance(g_beachRobot,g_beachCircuit)
+                        <<" M - "<<(fabsf(bearing)<12?"AHEAD":bearing<0?"TURN LEFT":"TURN RIGHT")<<" - HOME LOCATE";
+                    hud.push_back(direction.str());
+                }
+            }
+        }
+        if(camera.currentPresetIndex==VIEW_TOWER){
+            hud.push_back("V OBSERVATION GALLERY  PAGEUP KEEPER ROBOT CLIMB");
+            hud.push_back("ENTER CONTROL KEEPER  W/S STAIRS  SPACE AUTO CLIMB");
+            hud.push_back(std::string("F3 CUTAWAY ")+(g_lighthouseCutaway?"ON":"OFF")+"  F4 NEXT INTERIOR LEVEL");
+            if(g_lighthouseCutaway){
+                static const char* rooms[]={"GROUND: WATER TANK / POWER","LEVEL 1: STORAGE","LEVEL 2: LIVING ROOM",
+                    "LEVEL 3: SLEEPING QUARTERS","LEVEL 4: SERVICE ROOM","LANTERN: LENS / ROTATING OPTIC"};
+                hud.push_back(g_lighthouseLevel<0?"72 SPIRAL STEPS - CENTRAL MAST - HANDRAIL":rooms[g_lighthouseLevel]);
+            }
+        }
         if(g_atvDriveMode || g_atvBattery.charging){
             std::ostringstream charge;charge<<std::fixed<<std::setprecision(1)<<"BATTERY "<<g_atvBattery.percent<<"%";
             if(g_atvBattery.charging)charge<<(g_atvBattery.percent>=100?" FULL - Q DISCONNECT":" CHARGING - Q DISCONNECT");
@@ -875,18 +1006,22 @@ int main()
             else if(!g_atvBattery.charging){std::ostringstream distance;distance<<"CHARGER "<<(int)atvChargerDistance(g_atvState,g_beachCircuit)<<" M - PARK BESIDE CHARGER THEN Q";hud.push_back(distance.str());}
         }
         if(g_atvDriveMode && g_atvState.blocked)hud.push_back("OBSTACLE - STOPPED SAFELY - REVERSE TO CLEAR");
+        if(g_boatPilotMode && g_boatState.blocked)hud.push_back("BOAT CONTACT - REVERSE OR STEER AWAY");
         if(g_showDiagnostics){std::ostringstream stats;stats<<std::fixed<<std::setprecision(1);
             if(hudFps>0)stats<<"FPS "<<hudFps<<"  FRAME "<<hudMs<<" MS";else stats<<"FPS WARMING UP";
             stats<<"  VSYNC "<<(g_vsync?"ON":"OFF");hud.push_back(stats.str());hud.push_back("GPU: "+g_gpuRenderer);}
-        int guideContext=g_beachRobot.active?GUIDE_WALKING:g_atvDriveMode||g_atvBattery.charging?GUIDE_ATV:g_boatPilotMode?GUIDE_BOAT:GUIDE_CAMERA;
+        int guideContext=g_towerViewMode?GUIDE_LIGHTHOUSE:g_beachRobot.active?GUIDE_WALKING:g_atvDriveMode||g_atvBattery.charging?GUIDE_ATV:g_boatPilotMode?GUIDE_BOAT:GUIDE_CAMERA;
         if(!g_beachRobot.active&&!g_atvDriveMode&&!g_atvBattery.charging&&!g_boatPilotMode){
-            if(camera.currentPresetIndex==VIEW_TOWER)guideContext=GUIDE_LIGHTHOUSE;
+            if(camera.currentPresetIndex==VIEW_TOWER||camera.currentPresetIndex==VIEW_TOWER_TOP||g_towerViewMode)guideContext=GUIDE_LIGHTHOUSE;
             else if(camera.currentPresetIndex==VIEW_BOAT)guideContext=GUIDE_BOAT;
             else if(camera.currentPresetIndex==VIEW_ROBOT)guideContext=GUIDE_SEATED;
             else if(camera.currentPresetIndex>=VIEW_PALM_ROCKS&&camera.currentPresetIndex<=VIEW_STILT_HOUSE)guideContext=GUIDE_ENVIRONMENT;
         }
         g_objectGuide.observe(guideContext);
-        if(panelWidth>0 && panelHeight>0)g_dayPanel.draw(panelWidth,panelHeight,g_daySpeed,g_dayPaused,hud,&g_objectGuide);
+        g_beaconPanel.heading=g_lighthouseBeam.heading;g_beaconPanel.elevation=g_lighthouseBeam.elevation;
+        g_beaconPanel.speed=g_lighthouseBeam.speed;g_beaconPanel.paused=g_lighthouseBeam.paused;
+        if(g_beaconPanel.visible)hud.push_back("TOP: A/D WALK GALLERY - S DESCEND - DRAG TO LOOK - LIGHT MENU BELOW");
+        if(panelWidth>0 && panelHeight>0)g_dayPanel.draw(panelWidth,panelHeight,g_daySpeed,g_dayPaused,hud,&g_objectGuide,&g_beaconPanel);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
@@ -909,12 +1044,15 @@ int main()
     islandTerrainMesh.cleanup();
     wheelCylinderMesh.cleanup();
     lighthouseTowerMesh.cleanup();
+    lighthouseCutawayMesh.cleanup();
+    lighthouseInterior.cleanup();
     lighthouseRoofMesh.cleanup();
     lighthouseBeamMesh.cleanup();
     prismMesh.cleanup();
     stiltCylinderMesh.cleanup();
     stiltConeMesh.cleanup();
     lighthouseSite.cleanup();
+    lighthouseEntrance.cleanup();
     g_dayPanel.cleanup();
     skybox.cleanup();
     texManager.cleanup();
@@ -931,19 +1069,99 @@ int main()
 // ============================================================================
 void processInput(GLFWwindow* window)
 {
-    if(g_beachRobot.press(glfwGetKey(window,GLFW_KEY_ENTER)==GLFW_PRESS)){
+    auto enterTowerCamera=[](){
+        g_atvDriveMode=false;g_boatPilotMode=false;g_beachRobot.active=false;g_beachRobot.speed=0;
+        g_atvState.touring=false;g_atvState.speed=0;
+        g_towerLookYaw=0;g_towerLookPitch=0;camera.isTransitioning=false;
+    };
+    const bool towerContext=g_towerViewMode!=0||camera.currentPresetIndex==VIEW_TOWER||camera.currentPresetIndex==VIEW_TOWER_TOP;
+    auto controlKeeper=[&](){
+        enterTowerCamera();g_towerViewMode=1;g_towerManual=true;g_towerFirstPerson=true;camera.currentPresetIndex=-1;
+        g_towerRobot.running=false;g_towerRobot.paused=false;
+    };
+    static bool climbDown=false,resetClimbDown=false,towerEyeDown=false;
+    bool climbKey=glfwGetKey(window,GLFW_KEY_PAGE_UP)==GLFW_PRESS;
+    bool resetClimbKey=glfwGetKey(window,GLFW_KEY_PAGE_DOWN)==GLFW_PRESS;
+    bool eyeKey=glfwGetKey(window,GLFW_KEY_E)==GLFW_PRESS;
+    if(climbKey&&!climbDown){
+        enterTowerCamera();g_towerViewMode=1;g_towerFirstPerson=true;g_towerManual=false;
+        camera.currentPresetIndex=-1;g_towerRobot.start(g_lighthouseBaseHeight);
+        std::cout<<"[Tower] Keeper robot: approach, enter doorway, climb 72 steps, walk onto observation gallery. E switches POV / cutaway; Space pauses; PageDown exits.\n";
+    }
+    if(resetClimbKey&&!resetClimbDown){
+        g_towerViewMode=0;g_towerRobot.reset(g_lighthouseBaseHeight);camera.setPreset(VIEW_TOWER,window);
+    }
+    bool movementKey=glfwGetKey(window,GLFW_KEY_W)==GLFW_PRESS||glfwGetKey(window,GLFW_KEY_S)==GLFW_PRESS||
+        glfwGetKey(window,GLFW_KEY_UP)==GLFW_PRESS||glfwGetKey(window,GLFW_KEY_DOWN)==GLFW_PRESS;
+    if(towerContext&&movementKey&&(g_towerViewMode!=1||!g_towerManual))controlKeeper();
+    static bool keeperEnterDown=false;
+    bool enterKey=glfwGetKey(window,GLFW_KEY_ENTER)==GLFW_PRESS;
+    if(towerContext&&enterKey&&!keeperEnterDown){
+        if(g_towerViewMode==1){g_towerViewMode=0;g_towerRobot.running=false;camera.setPreset(VIEW_TOWER,window);}
+        else {controlKeeper();g_towerFirstPerson=true;}
+    }
+    keeperEnterDown=enterKey;
+    if(towerContext&&eyeKey&&!towerEyeDown){
+        bool alreadyViewing=g_towerViewMode!=0;
+        if(g_towerViewMode!=1)controlKeeper();
+        if(alreadyViewing)g_towerFirstPerson=!g_towerFirstPerson;
+        else g_towerFirstPerson=true;
+    }
+    climbDown=climbKey;resetClimbDown=resetClimbKey;towerEyeDown=eyeKey;
+    static bool cutawayPressed=false,levelPressed=false;
+    bool cutawayKey=glfwGetKey(window,GLFW_KEY_F3)==GLFW_PRESS;
+    bool levelKey=glfwGetKey(window,GLFW_KEY_F4)==GLFW_PRESS;
+    if((cutawayKey&&!cutawayPressed)||(levelKey&&!levelPressed)){
+        g_atvDriveMode=false;g_boatPilotMode=false;g_beachRobot.active=false;
+        g_atvState.touring=false;g_atvState.speed=0;camera.riderViewActive=false;
+        if(levelKey&&!levelPressed){g_lighthouseCutaway=true;g_lighthouseLevel=(g_lighthouseLevel+1)%6;}
+        else {g_lighthouseCutaway=!g_lighthouseCutaway;g_lighthouseLevel=-1;}
+        camera.setPreset(VIEW_TOWER,window);
+        if(g_lighthouseCutaway){
+            camera.desiredYaw=0;camera.desiredPitch=5;
+            camera.desiredDistance=g_lighthouseLevel<0?30.f:7.5f;
+            camera.desiredTarget=glm::vec3(-6,g_lighthouseBaseHeight+
+                (g_lighthouseLevel<0?9.f:g_lighthouseLevel==5?15.55f:1.12f+2.8f*g_lighthouseLevel),-110);
+        }
+        std::cout<<"[Lighthouse] "<<(g_lighthouseCutaway?"Cutaway interior":"Exterior")
+            <<" | F3 toggle, F4 next level\n";
+    }
+    cutawayPressed=cutawayKey;levelPressed=levelKey;
+    if(g_beachRobot.press(!towerContext&&enterKey)){
         if(g_beachRobot.active){g_atvDriveMode=false;g_boatPilotMode=false;g_atvState.touring=false;g_atvState.speed=0;
             camera.isTransitioning=false;camera.currentPresetIndex=-1;
             camera.target=g_beachRobot.pos+glm::vec3(0,1.05f,0);camera.yaw=180+g_beachRobot.heading;camera.pitch=14;camera.distance=5;}
         std::cout<<"[Beach robot] "<<(g_beachRobot.active?"Walking controls: W/S forward/back, A/D turn, Enter exit.":"Free camera restored.")<<std::endl;
     }
     if(g_atvBattery.press(glfwGetKey(window,GLFW_KEY_Q)==GLFW_PRESS)){
-        if(g_atvBattery.charging){g_atvBattery.charging=false;std::cout<<"[ATV] Charger disconnected."<<std::endl;}
+        if(g_beachRobot.charging){g_beachRobot.charging=false;std::cout<<"[Robot] Charger disconnected."<<std::endl;}
+        else if(g_beachRobot.active){
+            if(g_atvBattery.charging)std::cout<<"[Robot] Charger occupied by ATV. Disconnect the ATV first.\n";
+            else if(canConnectRobotCharger(g_beachRobot,g_beachCircuit,g_atvObstacles,&g_atvState)){
+                g_beachRobot.charging=true;g_beachRobot.speed=g_beachRobot.gaitBlend=0;
+                std::cout<<"[Robot] Charging connected. Q disconnects; movement locked while connected.\n";
+            }else std::cout<<"[Robot] Stop beside the charging panel (within 1.75 m), then press Q. Home locates the station.\n";
+        }
+        else if(g_atvBattery.charging){g_atvBattery.charging=false;std::cout<<"[ATV] Charger disconnected."<<std::endl;}
         else if(g_atvDriveMode && canConnectATVCharger(g_atvState,g_beachCircuit)){
             g_atvBattery.charging=true;g_atvState.speed=g_atvState.yawRate=0;g_atvState.touring=false;g_atvState.parked=true;
             std::cout<<"[ATV] Charging connected. Q disconnects; driving locked while connected."<<std::endl;
         }else std::cout<<"[ATV] Ride the ATV, stop beside the charger (within 2 m), then press Q."<<std::endl;
     }
+    static bool stationPressed=false;
+    bool stationKey=glfwGetKey(window,GLFW_KEY_HOME)==GLFW_PRESS;
+    if(stationKey&&!stationPressed){
+        g_beachRobot.active=false;g_beachRobot.speed=0;g_atvDriveMode=false;g_boatPilotMode=false;
+        g_atvState.touring=false;g_atvState.speed=0;camera.riderViewActive=false;
+        auto station=beachChargingStationTransform(g_beachCircuit);
+        auto target=station*glm::vec4(0,1.2f,0,1);
+        auto eye=station*glm::vec4(-6,4.2f,6,1);glm::vec3 delta=glm::vec3(eye-target);
+        camera.isTransitioning=true;camera.currentPresetIndex=-1;camera.desiredTarget=glm::vec3(target);
+        camera.desiredDistance=glm::length(delta);camera.desiredYaw=glm::degrees(atan2f(delta.x,delta.z));
+        camera.desiredPitch=glm::degrees(asinf(delta.y/camera.desiredDistance));
+        g_objectGuide.observe(GUIDE_WALKING);
+    }
+    stationPressed=stationKey;
     if(g_umbrellaAnimation.press(glfwGetKey(window,GLFW_KEY_I)==GLFW_PRESS))
         std::cout<<"[Umbrella] "<<(g_umbrellaAnimation.targetOpen?"Opening":"Closing")<<std::endl;
     static bool helpDown=false,statsDown=false;
@@ -978,8 +1196,16 @@ void processInput(GLFWwindow* window)
     static bool spacePressed = false;
     if (!g_atvDriveMode && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !spacePressed)
     {
-        g_dayPaused = !g_dayPaused;
-        std::cout << ">>> [Day Cycle] " << (g_dayPaused ? "PAUSED" : "RUNNING") << " <<<\n";
+        if(g_towerViewMode||camera.currentPresetIndex==VIEW_TOWER){
+            if(g_towerViewMode!=1){enterTowerCamera();g_towerViewMode=1;camera.currentPresetIndex=-1;}
+            if(g_towerManual||g_towerRobot.finished()||(!g_towerRobot.running&&!g_towerRobot.paused)){
+                if(g_towerRobot.finished())g_towerRobot.start(g_lighthouseBaseHeight);
+                else {g_towerRobot.running=true;g_towerRobot.paused=false;}
+                g_towerManual=false;
+            }else g_towerRobot.paused=!g_towerRobot.paused;
+        }
+        else {g_dayPaused = !g_dayPaused;
+            std::cout << ">>> [Day Cycle] " << (g_dayPaused ? "PAUSED" : "RUNNING") << " <<<\n";}
         spacePressed = true;
     }
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
@@ -1040,11 +1266,14 @@ void processInput(GLFWwindow* window)
     if (glfwGetKey(window, GLFW_KEY_N) == GLFW_RELEASE && glfwGetKey(window, GLFW_KEY_F8) == GLFW_RELEASE)
         nPressed = false;
 
-    // Perspective navigation remains constrained in the island scene.
+    // Direct observation-gallery view; V's former orthographic mode was disabled here.
     static bool vPressed = false;
     if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS && !vPressed)
     {
-        camera.cycleProjectionMode();
+        enterTowerCamera();g_towerViewMode=2;g_towerFirstPerson=true;g_towerManual=true;
+        g_towerRobot.running=g_towerRobot.paused=false;
+        g_towerRobot.progress=(float)g_towerRobot.route.size()-1;g_towerRobot.galleryAngle=0;
+        camera.setPreset(VIEW_TOWER_TOP,window);
         vPressed = true;
     }
     if (glfwGetKey(window, GLFW_KEY_V) == GLFW_RELEASE)
@@ -1091,9 +1320,9 @@ void processInput(GLFWwindow* window)
 
     // Interactive Parameters: Keys 1/2 for Robot Head, Keys 3/4 for Umbrella Tilt
     if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
-        g_robotHeadYaw -= 45.0f * deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
         g_robotHeadYaw += 45.0f * deltaTime;
+    if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
+        g_robotHeadYaw -= 45.0f * deltaTime;
 
     if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
         g_umbrellaTilt = glm::max(0.0f, g_umbrellaTilt - 20.0f * deltaTime);
@@ -1266,6 +1495,15 @@ void processInput(GLFWwindow* window)
     }
     if (glfwGetKey(window, GLFW_KEY_TAB) == GLFW_RELEASE)
         tabKeyPressed = false;
+    if(camera.currentPresetIndex==VIEW_TOWER_TOP&&g_towerViewMode!=2){
+        enterTowerCamera();g_towerViewMode=2;g_towerFirstPerson=true;g_towerManual=true;
+        g_towerRobot.running=g_towerRobot.paused=false;
+        g_towerRobot.progress=(float)g_towerRobot.route.size()-1;g_towerRobot.galleryAngle=0;
+    }
+    else if(g_towerViewMode&&((camera.isTransitioning&&camera.currentPresetIndex>=0)||
+        g_beachRobot.active||g_atvDriveMode||g_boatPilotMode)){
+        g_towerViewMode=0;g_towerRobot.running=false;camera.riderViewActive=false;
+    }
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -1279,6 +1517,8 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
     int width,height;glfwGetWindowSize(window,&width,&height);g_dayPanel.layout(width,height);
+    g_beaconPanel.layout(width,height);
+    if(g_beaconPanel.mouse(button,action,xpos,ypos,g_lighthouseBeam.heading,g_lighthouseBeam.elevation,g_lighthouseBeam.speed,g_lighthouseBeam.paused))return;
     g_objectGuide.layout(width,height);
     if(g_objectGuide.mouse(button,action,xpos,ypos))return;
     if(g_dayPanel.mouse(button,action,xpos,ypos,g_daySpeed,g_dayPaused))return;
@@ -1287,8 +1527,16 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 {
+    if(g_beaconPanel.move(xpos,g_lighthouseBeam.heading,g_lighthouseBeam.elevation,g_lighthouseBeam.speed,g_lighthouseBeam.paused)){camera.lastX=xpos;camera.lastY=ypos;return;}
     if(g_objectGuide.active()){camera.lastX=xpos;camera.lastY=ypos;return;}
     if(g_dayPanel.move(xpos,g_daySpeed)){camera.lastX=xpos;camera.lastY=ypos;return;}
+    if(g_towerViewMode){
+        if(camera.isDraggingOrbit){
+            g_towerLookYaw=std::remainder(g_towerLookYaw-(float)(xpos-camera.lastX)*.25f,360.f);
+            g_towerLookPitch=glm::clamp(g_towerLookPitch+(float)(camera.lastY-ypos)*.20f,-65.f,60.f);
+        }
+        camera.lastX=xpos;camera.lastY=ypos;return;
+    }
     if(g_atvDriveMode)
     {
         if(camera.isDraggingOrbit)
@@ -1310,6 +1558,7 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     if(g_objectGuide.wheel(x,y,yoffset))return;
     if(g_dayPanel.active() || g_dayPanel.contains(x,y))
     {g_daySpeed=glm::clamp(g_daySpeed+(float)yoffset*.05f,.05f,4.0f);return;}
+    if(g_towerViewMode)return;
     if(g_atvDriveMode)
     {
         g_atvCameraDistance=glm::clamp(g_atvCameraDistance-(float)yoffset*.5f,3.5f,12.0f);

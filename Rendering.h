@@ -27,6 +27,7 @@ out vec3 GouraudColor;
 out vec3 GouraudSpecular;
 out vec3 PlantColor;
 out float ObjectHeight;
+out float ShaftFacing;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -56,6 +57,7 @@ out vec3 InstanceMaterial;
 void main()
 {
     ObjectHeight=aPos.y;
+    ShaftFacing=dot(aNormal.xz,aPos.xz);
     mat4 effectiveModel=instancedPass==1?instanceModel:model;
     InstanceColor=instancedPass==1?instanceColor:objectColor;
     InstanceMaterial=instancedPass==1?instanceMaterial:vec3(shininess,specularStrength,float(unlit));
@@ -122,6 +124,7 @@ in vec3 GouraudColor;
 in vec3 GouraudSpecular;
 in vec3 PlantColor;
 in float ObjectHeight;
+in float ShaftFacing;
 in vec3 InstanceColor;
 in vec3 InstanceMaterial;
 
@@ -160,15 +163,31 @@ uniform mat4 sunShadowMatrix;
 uniform int sunShadowsEnabled;
 uniform int foliagePass;
 uniform int nightLightCount;
-uniform vec4 nightLightPositions[20];
-uniform vec4 nightLightColors[20];
+uniform vec4 nightLightPositions[22];
+uniform vec4 nightLightColors[22];
+uniform vec4 nightLightDirections[22]; // w=1: ATV spotlight; w=0: island point lamp
 uniform float nightLightIntensity;
+uniform vec3 lighthouseLightOrigin;
+uniform float lighthouseInteriorIntensity;
+
+vec3 lighthouseLighting(vec3 base,vec3 normal)
+{
+    if(lighthouseInteriorIntensity<=0)return vec3(0);
+    vec3 result=vec3(0),n=normalize(normal);
+    for(int i=0;i<5;++i){
+        vec3 delta=lighthouseLightOrigin+vec3(0,.12+float(i)*2.8+1.7,-1.18)-FragPos;
+        float d=length(delta);
+        float falloff=pow(max(1.0-d/3.2,0.0),2.0);
+        result+=base*vec3(1.0,.78,.44)*falloff*(.15+1.8*max(dot(n,delta/max(d,.01)),0.0));
+    }
+    return result*lighthouseInteriorIntensity;
+}
 
 vec3 nightLighting(vec3 base,vec3 normal)
 {
     if(nightLightIntensity<=0)return vec3(0);
     vec3 result=vec3(0),n=normalize(normal),v=normalize(viewPos-FragPos);
-    for(int i=0;i<20;++i)
+    for(int i=0;i<22;++i)
     {
         if(i>=nightLightCount)break;
         vec3 delta=nightLightPositions[i].xyz-FragPos;
@@ -176,6 +195,8 @@ vec3 nightLighting(vec3 base,vec3 normal)
         if(distance>=radius)continue;
         vec3 l=delta/max(distance,.01);
         float down=smoothstep(-.15,.35,l.y);
+        if(nightLightDirections[i].w>0)
+            down=smoothstep(.898794,.961262,dot(-l,nightLightDirections[i].xyz));
         float attenuation=(1-smoothstep(radius*.65,radius,distance))/(1+.12*distance+.055*distance*distance);
         float diffuse=max(dot(n,l),0);
         if(foliagePass==1)diffuse=max(diffuse,max(dot(-n,l),0)*.45);
@@ -225,9 +246,31 @@ void main()
     vec3 baseColor = foliagePass==1?PlantColor:InstanceColor;
     if(lighthouseShaftPass==1)
     {
-        float height=ObjectHeight*14.0+7.0;
-        if(abs(height-4.4)<=.675 || abs(height-10.2)<=.675)
+        float height=FragPos.y-lighthouseLightOrigin.y;
+        if(ShaftFacing>0.0 && (abs(height-4.4)<=.675 || abs(height-10.2)<=.675))
             baseColor=vec3(.72,.07,.055);
+        // Staggered masonry joints follow cylindrical UVs on the real shell.
+        float row=height/.28;
+        float around=atan(FragPos.z-lighthouseLightOrigin.z,FragPos.x-lighthouseLightOrigin.x)/6.283185307;
+        vec2 brickUV=vec2(around*44.0+.5*mod(floor(row),2.0),row);
+        vec2 brick=fract(brickUV);
+        vec2 edge=min(brick,1.0-brick);
+        vec2 aa=max(fwidth(vec2(around*44.0,row)),vec2(.004));
+        vec2 joints=1.0-smoothstep(vec2(.03)-aa,vec2(.03)+aa,edge);
+        float joint=max(joints.x,joints.y);
+        baseColor=mix(baseColor,vec3(.53,.51,.46),joint*.55);
+    }
+    if(lighthouseShaftPass==2)
+    {
+        vec3 p=FragPos-lighthouseLightOrigin;
+        float course=p.y/.22;
+        float along=atan(p.z,p.x)*3.2/.48;
+        if(abs(normalize(Normal).y)>.6){course=p.z/.40;along=p.x/.55;}
+        vec2 uv=vec2(along+.5*mod(floor(course),2.0),course);
+        vec2 edge=min(fract(uv),1.0-fract(uv)),aa=max(fwidth(uv),vec2(.004));
+        vec2 seams=1.0-smoothstep(vec2(.025)-aa,vec2(.025)+aa,edge);
+        float variation=.92+.08*sin(floor(uv.x)*17.0+floor(uv.y)*9.0);
+        baseColor=mix(baseColor*variation,vec3(.25,.24,.21),max(seams.x,seams.y)*.7);
     }
     if (terrainPalette == 1)
     {
@@ -279,7 +322,7 @@ void main()
     if (mode == 1)
     {
         vec3 ambient=ambientStrength*lightColor;
-        FragColor=vec4((ambient+(GouraudColor-ambient)*visibility)*baseColor+GouraudSpecular*visibility+nightLighting(baseColor,Normal),objectAlpha);
+        FragColor=vec4((ambient+(GouraudColor-ambient)*visibility)*baseColor+GouraudSpecular*visibility+nightLighting(baseColor,Normal)+lighthouseLighting(baseColor,Normal),objectAlpha);
         return;
     }
 
@@ -329,7 +372,7 @@ void main()
 
     // Combine lighting components with base surface color
     // Dielectric highlights reflect the light color, not the pigment color.
-    vec3 result = (ambient + diffuse*visibility) * baseColor + specular*visibility+nightLighting(baseColor,norm);
+    vec3 result = (ambient + diffuse*visibility) * baseColor + specular*visibility+nightLighting(baseColor,norm)+lighthouseLighting(baseColor,norm);
     FragColor = vec4(result, objectAlpha);
 }
 )BEACH_GLSL";
@@ -563,8 +606,9 @@ uniform sampler2D sunShadowMap;
 uniform mat4 sunShadowMatrix;
 uniform int sunShadowsEnabled;
 uniform int nightLightCount;
-uniform vec4 nightLightPositions[20];
-uniform vec4 nightLightColors[20];
+uniform vec4 nightLightPositions[22];
+uniform vec4 nightLightColors[22];
+uniform vec4 nightLightDirections[22];
 uniform float nightLightIntensity;
 
 float sunVisibility()
@@ -805,13 +849,15 @@ void main()
 
     finalColor = mix(finalColor, blendedFoamColor, totalFoam * 0.88);
     if(nightLightIntensity>0)
-    for(int i=0;i<20;++i)
+    for(int i=0;i<22;++i)
     {
         if(i>=nightLightCount)break;
         vec3 delta=nightLightPositions[i].xyz-FragPos;float d=length(delta),radius=nightLightPositions[i].w;
         if(d>=radius)continue;
         vec3 lamp=delta/max(d,.01);
         float falloff=(1-smoothstep(radius*.65,radius,d))/(1+.12*d+.055*d*d);
+        if(nightLightDirections[i].w>0)
+            falloff*=smoothstep(.898794,.961262,dot(-lamp,nightLightDirections[i].xyz));
         float glint=pow(max(dot(N,normalize(lamp+V)),0),64);
         finalColor+=nightLightColors[i].rgb*nightLightColors[i].w*falloff*nightLightIntensity*(waterBodyColor*.25*max(dot(N,lamp),0)+glint*.5);
     }
@@ -898,20 +944,43 @@ void main()
             skyCol += coronaGlow + discColor * discMask;
         }
 
-        // Night sky twinkling stars (visible when sun is down)
-        if (timeOfDay < 5.5 || timeOfDay > 19.2)
+        // Static distant stars: small circular profiles, not filled hash cells.
+        // Direction derivatives keep subpixel stars smooth at any viewport size.
+        float starPixel = max(length(dFdx(dir)), length(dFdy(dir)));
+        float nightFactor = max(1.0 - smoothstep(5.0, 5.8, timeOfDay),
+                                smoothstep(18.8, 19.8, timeOfDay));
+        if (nightFactor > 0.0 && dir.y > 0.03)
         {
-            float nightFactor = 1.0;
-            if (timeOfDay >= 5.0 && timeOfDay <= 5.8) nightFactor = (5.8 - timeOfDay) / 0.8;
-            if (timeOfDay >= 18.8 && timeOfDay <= 19.8) nightFactor = (timeOfDay - 18.8) / 1.0;
-
-            vec3 p = floor(dir * 180.0);
-            float starHash = fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
-            if (starHash > 0.993 && dir.y > 0.08)
+            const float pi = 3.14159265359;
+            const vec2 grid = vec2(512.0, 256.0);
+            vec2 uv = vec2(atan(dir.z, dir.x) / (2.0*pi) + 0.5,
+                           asin(clamp(dir.y, -1.0, 1.0)) / pi + 0.5);
+            vec2 cell = floor(uv * grid);
+            float stars = 0.0;
+            // Include neighbours so a star's soft edge cannot be cut by a cell.
+            for (int y = -1; y <= 1; ++y)
+            for (int x = -1; x <= 1; ++x)
             {
-                float brightness = (starHash - 0.993) / 0.007;
-                skyCol += vec3(0.88, 0.92, 1.0) * brightness * nightFactor * 1.1;
+                vec2 c = cell + vec2(x, y);
+                c.x = mod(c.x, grid.x); // continuous across longitude seam
+                if (c.y < 0.0 || c.y >= grid.y) continue;
+                float h = fract(sin(dot(c, vec2(127.1, 311.7))) * 43758.5453);
+                if (h <= 0.992) continue;
+                vec2 jitter = fract(sin(vec2(dot(c, vec2(269.5,183.3)),
+                                             dot(c, vec2(419.2,371.9)))) * 43758.5453);
+                vec2 angles = ((c + 0.2 + 0.6*jitter) / grid - 0.5) * vec2(2.0*pi, pi);
+                vec3 starDir = vec3(cos(angles.y)*cos(angles.x), sin(angles.y),
+                                    cos(angles.y)*sin(angles.x));
+                float distance = length(dir - starDir);
+                float brightness = (h - 0.992) / 0.008;
+                float radius = mix(0.00055, 0.00115, brightness);
+                float variance = radius*radius + 0.25*starPixel*starPixel;
+                // Gaussian footprint with energy compensation for tiny stars.
+                stars += exp(-distance*distance / variance) * radius*radius / variance
+                         * mix(0.45, 1.4, brightness);
             }
+            skyCol += vec3(0.88, 0.92, 1.0) * stars * nightFactor
+                    * smoothstep(0.03, 0.15, dir.y);
         }
     }
     else
@@ -1591,11 +1660,11 @@ struct ObjectGuideEntry {std::string title;std::vector<std::string> instructions
 inline const std::vector<ObjectGuideEntry>& objectGuideEntries(){
     static const std::vector<ObjectGuideEntry> entries={
         {"SEATED ROBOT",{"C / 7 - FOCUS BEACH","1 / 2 - TURN HEAD","RESTING ON THE LOUNGER"}},
-        {"WALKING ROBOT",{"ENTER - CONTROL / EXIT","W / S - WALK / BACK","A / D - TURN; ARROWS TOO","FOLLOW THE DRY BEACH PATH","REVERSE OR TURN IF BLOCKED"}},
+        {"WALKING ROBOT",{"ENTER - CONTROL / EXIT","W / S - WALK / BACK","A / D - TURN; ARROWS TOO","Q - CHARGE / DISCONNECT","STOP WITHIN 1.75 M OF PANEL","HOME - LOCATE STATION","BATTERY AND DIRECTION IN HUD","CHARGER IS SHARED WITH ATV","FOLLOW THE DRY BEACH PATH","REVERSE OR TURN IF BLOCKED"}},
         {"UMBRELLA",{"C - FOCUS BEACH","I - OPEN / CLOSE","3 / 4 - CHANGE POLE TILT","PRESS I AGAIN TO REVERSE","WORKS WHILE DAY IS PAUSED"}},
-        {"MOTORBOAT",{"B / 5 - FOCUS BOAT","F - PILOT / EXIT","W / S - THROTTLE / BRAKE","A / D - STEER; ARROWS TOO","MOVEMENT CREATES A WAKE"}},
+        {"MOTORBOAT",{"B / 5 - FOCUS BOAT","F - PILOT / EXIT","W / S - THROTTLE / BRAKE","A / D - STEER; ARROWS TOO","MOVEMENT CREATES A WAKE","CONTACT: REVERSE / TURN AWAY","SHORE AND BOATS ARE SOLID"}},
         {"ATV AND CHARGER",{"H - RIDE / EXIT","W / S - DRIVE / REVERSE","A / D - STEER; ARROWS TOO","SPACE - BRAKE","U - START / STOP TOUR","E - CHASE / RIDER VIEW","Q - CONNECT / DISCONNECT","STOP WITHIN 2 M OF CHARGER","STOP TOUR BEFORE CHARGING","DISCONNECT BEFORE DRIVING"}},
-        {"LIGHTHOUSE",{"T / 6 - FOCUS TOWER","F9 - PAUSE / RESUME SWEEP","F10 - RESET BEACON","COMMA / PERIOD - AIM","SEMICOLON / APOSTROPHE","CHANGE ROTATION SPEED","F11 / F12 - AIM UP / DOWN","MANUAL AIM PAUSES SWEEP","LIGHT TURNS ON AT NIGHT"}},
+        {"LIGHTHOUSE",{"T / 6 - FOCUS TOWER","V - KEEPER ON TOP GALLERY","ENTER - CONTROL KEEPER / EXIT","W/S OR UP/DOWN - STAIRS","S - DESCEND FROM TOP","PAGEUP - AUTO CLIMB / RESTART","E - POV / CUTAWAY IN TOWER","SPACE - AUTO CLIMB / PAUSE","PAGEDOWN - RESET / EXIT","LEFT DRAG - LOOK AROUND","A/D - WALK TOP GALLERY","TOP - CLICK LIGHT CONSOLE","ON/OFF OR DAY/NIGHT AUTO","AIM / TILT / SWEEP SPEED","F3 - CUTAWAY / EXTERIOR","F4 - NEXT INTERIOR LEVEL","72 STEPS AND KEEPER ROOMS","F9 - PAUSE / RESUME SWEEP","F10 - RESET BEACON","COMMA / PERIOD - AIM","SEMICOLON / APOSTROPHE","CHANGE ROTATION SPEED","F11 / F12 - AIM UP / DOWN","MANUAL AIM PAUSES SWEEP","LIGHT TURNS ON AT NIGHT"}},
         {"DAY AND LIGHTING",{"DRAG DAY SPEED SLIDER","CLICK PAUSE / PLAY","[ / ] - CHANGE DAY SPEED","SPACE - DAY PAUSE","OUTSIDE ATV DRIVING MODE","F5 / J - SUNRISE","F6 / K - MIDDAY","F7 - SUNSET; F8 / N - NIGHT","PATH LIGHTS FADE AT DUSK"}},
         {"ENVIRONMENT OBJECTS",{"P / 8 - PALMS AND ROCKS","Y - VIEW STILT HOUSE","L / 9 - VIEW SAILBOATS","CHAIRS AND HOUSE: VIEW ONLY","TREES SWAY AUTOMATICALLY","COCONUTS FALL AUTOMATICALLY","WAVES AND BOAT BOBBING: AUTO","DISTANT BOATS DRIFT: AUTO","O / R - ISLAND OVERVIEW"}},
         {"CAMERA AND GRAPHICS",{"LEFT DRAG - ORBIT / LOOK","RIGHT DRAG - PAN FREE VIEW","SCROLL - ZOOM FREE VIEW","TAB - CYCLE OBJECT VIEWS","M - CHANGE SHADING","X - TEXTURES; G - SHADOWS","Z - WIREFRAME","F1 - SHOW / HIDE THIS GUIDE","F2 - FPS AND GPU DETAILS","ESC - EXIT PROJECT"}}
@@ -1647,6 +1716,30 @@ struct ObjectGuideState {
     }
 };
 
+// The gallery console captures clicks before the camera and controls the real beacon.
+struct BeaconControlPanel {
+    bool visible=false,captured=false; int dragging=-1,power=0;
+    float left=0,top=0,scale=1,heading=0,elevation=0,speed=55; bool paused=false;
+    void layout(int w,int h){scale=std::clamp((w-36.f)/340.f,.35f,1.f);left=std::max(18.f,w-18-340*scale);top=std::max(18.f,h-18-238*scale);}
+    bool contains(double x,double y)const{return visible&&x>=left&&x<=left+340*scale&&y>=top&&y<=top+238*scale;}
+    void aim(double x,float& yaw,float& tilt,float& rate,bool& stopped){
+        float t=std::clamp(((float)x-left)/scale-18.f,0.f,304.f)/304.f;
+        if(dragging==0){yaw=t*359;stopped=true;}if(dragging==1){tilt=-5+t*10;stopped=true;}if(dragging==2)rate=5+t*85;
+    }
+    bool mouse(int button,int action,double x,double y,float& yaw,float& tilt,float& rate,bool& stopped){
+        if(action==GLFW_RELEASE){bool used=captured;captured=false;dragging=-1;return used;}
+        if(!contains(x,y))return false;
+        captured=true;if(button!=GLFW_MOUSE_BUTTON_LEFT)return true;
+        float px=((float)x-left)/scale,py=((float)y-top)/scale;
+        if(py>=35&&py<=65){if(px<112)power=0;else if(px<222)power=1;else power=2;}
+        else if(py>=72&&py<=102){if(px<170)stopped=true;else stopped=false;}
+        else if(py>=110&&py<=140)dragging=0;
+        else if(py>=146&&py<=176)dragging=1;
+        else if(py>=182&&py<=216)dragging=2;
+        aim(x,yaw,tilt,rate,stopped);return true;
+    }
+    bool move(double x,float& yaw,float& tilt,float& rate,bool& stopped){if(dragging>=0)aim(x,yaw,tilt,rate,stopped);return captured;}
+};
 class DayCyclePanel
 {
     GLuint program=0,vao=0,vbo=0;
@@ -1768,7 +1861,7 @@ public:
         glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,6*sizeof(float),nullptr);glEnableVertexAttribArray(0);
         glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)(2*sizeof(float)));glEnableVertexAttribArray(1);glBindVertexArray(0);
     }
-    void draw(int windowWidth,int windowHeight,float speed,bool paused,const std::vector<std::string>& hud={},ObjectGuideState* guide=nullptr)
+    void draw(int windowWidth,int windowHeight,float speed,bool paused,const std::vector<std::string>& hud={},ObjectGuideState* guide=nullptr,BeaconControlPanel* beacon=nullptr)
     {
         layout(windowWidth,windowHeight);vertices.clear();
         rect(0,0,340,102,.025f,.06f,.08f,.93f);rect(0,0,340,2,.17f,.77f,.66f);
@@ -1808,6 +1901,21 @@ public:
         int count=std::min((int)rows.size(),std::max(0,(int)((savedTop-36)/(18*scale))));
         top=18;if(count){rect(0,0,(windowWidth-left-18)/scale,12+18*count,.025f,.06f,.08f,.85f);
             for(int i=0;i<count;++i)text(10,6+18*i,rows[i]);}top=savedTop;left=savedLeft;
+        if(beacon&&beacon->visible){
+            beacon->layout(windowWidth,windowHeight);left=beacon->left;top=beacon->top;
+            rect(0,0,340,238,.025f,.06f,.08f,.96f);rect(0,0,340,2,.95f,.72f,.25f);
+            text(18,13,"LIGHTHOUSE LIGHT CONTROL");
+            const char* powers[]={"AUTO","ON","OFF"};
+            for(int i=0;i<3;++i){rect(10+i*110,35,100,30,i==beacon->power?.35f:.12f,.24f,.22f);text(24+i*110,43,powers[i]);}
+            rect(10,72,155,30,beacon->paused?.35f:.12f,.24f,.22f);text(20,80,"MANUAL");
+            rect(175,72,155,30,!beacon->paused?.35f:.12f,.24f,.22f);text(187,80,"AUTO SWEEP");
+            float values[]={beacon->heading/359,(beacon->elevation+5)/10,(beacon->speed-5)/85};
+            for(int i=0;i<3;++i){char label[40];float y=110+i*36;
+                std::snprintf(label,sizeof(label),i==0?"AIM %.0f DEG":i==1?"TILT %.1f DEG":"SPEED %.0f DEG/S",i==0?beacon->heading:i==1?beacon->elevation:beacon->speed);
+                text(18,y,label);rect(18,y+22,304,4,.20f,.31f,.34f);rect(18+304*std::clamp(values[i],0.f,1.f)-4,y+18,8,12,.95f,.72f,.25f);
+            }
+            left=savedLeft;top=savedTop;
+        }
         GLint oldProgram,oldVAO,oldBuffer,polygon[2],src,dst,srcAlpha,dstAlpha;
         glGetIntegerv(GL_CURRENT_PROGRAM,&oldProgram);glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&oldVAO);glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&oldBuffer);
         glGetIntegerv(GL_POLYGON_MODE,polygon);glGetIntegerv(GL_BLEND_SRC_RGB,&src);glGetIntegerv(GL_BLEND_DST_RGB,&dst);glGetIntegerv(GL_BLEND_SRC_ALPHA,&srcAlpha);glGetIntegerv(GL_BLEND_DST_ALPHA,&dstAlpha);

@@ -181,8 +181,26 @@ int main()
         BeachATVState manual;manual.pos=circuit.sample(0,&manual.heading);
         float oldHeading=manual.heading;
         for(int i=0;i<30;++i)updateBeachATV(manual,circuit,1,1,1/60.0f);
-        require(manual.heading>oldHeading,"Right steering turns the wrong way");
+        require(manual.heading<oldHeading,"D/right steering turns the wrong way");
+        auto facing=[](float heading){float a=glm::radians(heading);return glm::vec3(sinf(a),0,cosf(a));};
+        require(glm::dot(facing(manual.heading),glm::cross(facing(oldHeading),glm::vec3(0,1,0)))>0,
+                "D steering is not right in the rider/chase frame");
         require(fabsf(manual.wheelSpin)>1,"Tyres do not rotate while driving");
+        // A grounded ATV steers its wheels at rest without yawing its chassis.
+        BeachATVState stationarySteering;stationarySteering.pos=circuit.sample(0,&stationarySteering.heading);
+        stationarySteering.yawRate=.6f;
+        float stoppedHeading=stationarySteering.heading;glm::vec3 stoppedPosition=stationarySteering.pos;
+        updateBeachATV(stationarySteering,circuit,0,1,.2f,true);
+        require(fabsf(stationarySteering.heading-stoppedHeading)<.0001f &&
+                glm::length(glm::vec2(stationarySteering.pos.x-stoppedPosition.x,
+                                      stationarySteering.pos.z-stoppedPosition.z))<.0001f && stationarySteering.yawRate==0,
+                "Stopped ATV retains boat-like yaw momentum");
+        require(stationarySteering.steering<0,"D does not turn stopped front wheels right");
+        BeachATVState reverseTurn;reverseTurn.pos=circuit.sample(0,&reverseTurn.heading);
+        reverseTurn.speed=-1;reverseTurn.steering=-15;reverseTurn.parked=false;
+        float reverseHeading=reverseTurn.heading;
+        updateBeachATV(reverseTurn,circuit,-1,.5f,.1f);
+        require(reverseTurn.heading>reverseHeading,"Reverse ATV steering has forward yaw direction");
         startBeachTour(manual,circuit);updateBeachATV(manual,circuit,1,0,1/60.0f);
         require(!manual.touring,"Manual control did not cancel the guided tour");
         // Slow rendering must not change distance, speed or steering response.
@@ -271,6 +289,22 @@ int main()
         IslandTerrainMesh terrain;WaterGridMesh ocean;Skybox sky;
         TextureManager textures;textures.init();
         IslandNightLights nightLights(circuit);
+        for(Shader* lampShader:{&objects,&water}){
+            auto body=beachATVBodyTransform(glm::mat4(1),7,-4);
+            nightLights.bind(*lampShader,22,&body);
+            GLint count=0;glGetUniformiv(lampShader->ID,lampShader->location("nightLightCount"),&count);
+            require(count==(int)nightLights.count()+2,"ATV headlights are missing from the light pass");
+            glm::vec4 position,direction;
+            std::string slot=std::to_string(nightLights.count());
+            glGetUniformfv(lampShader->ID,lampShader->location(("nightLightPositions["+slot+"]").c_str()),glm::value_ptr(position));
+            glGetUniformfv(lampShader->ID,lampShader->location(("nightLightDirections["+slot+"]").c_str()),glm::value_ptr(direction));
+            require(glm::length(glm::vec3(position)-glm::vec3(body*glm::vec4(-.38f,.95f,1.08f,1)))<.0001f,"Headlight source separates from its ATV lens");
+            require(direction.w==1&&fabsf(glm::length(glm::vec3(direction))-1)<.0001f,"Headlight cone has an invalid direction");
+            nightLights.bind(*lampShader,12,&body);float intensity=1;
+            glGetUniformfv(lampShader->ID,lampShader->location("nightLightIntensity"),&intensity);
+            require(intensity==0,"ATV lights remain on during daylight");
+            nightLights.bind(*lampShader,22);
+        }
         IslandVegetation vegetation(circuit);
         // Batch capture uses the original geometry/material definitions.
         IslandForestBatches forest;forest.init(objects,terrain,cube,sphere);forest.update(objects,cube,sphere,.8f);

@@ -13,6 +13,9 @@
 #include <cmath>
 
 inline float g_sceneSeaLevel=0.0f;
+// Models face local +Z with +Y up. Positive right input needs negative Y yaw.
+// Input/output use the same angular unit (degrees or radians).
+inline constexpr float rightTurnYaw(float rightAmount){return -rightAmount;}
 inline float coastalTideLevel(double hours)
 {
     // A gentle semidiurnal tide. Simulation hours, not wave seconds.
@@ -413,7 +416,7 @@ inline float getIslandSignedDistance(float x, float z)
 
 // Complete island cross-section: shallow seabed outside, continuous beach ring,
 // then a gradual rise to an irregular central hill as drawn by the user.
-inline float getCoastalTerrainElevation(float x, float z)
+inline float getNaturalCoastalTerrainElevation(float x, float z)
 {
     float shoreDistance = getIslandSignedDistance(x, z);
     float broad = islandFBM(x * 0.035f + 9.0f, z * 0.035f - 4.0f);
@@ -441,6 +444,44 @@ inline float getCoastalTerrainElevation(float x, float z)
     return glm::max(shallowShelf + deepening + sandbar, -12.0f);
 }
 
+// A small excavated corridor keeps the irregular summit out of the entrance
+// stairs. The rest of the analytic island terrain is untouched. Computing the
+// plan from the natural height function avoids recursive height queries.
+struct LighthouseGroundPreparation {
+    float base=0,run=0,rise=.16f;
+    int steps=1;
+    LighthouseGroundPreparation(){
+        base=getNaturalCoastalTerrainElevation(-6,-110);
+        for(int ring=1;ring<=32;++ring)for(int i=0;i<256;++i){
+            float a=i*6.283185307f/256,r=3.2f*ring/32;
+            base=glm::max(base,getNaturalCoastalTerrainElevation(-6+r*cosf(a),-110+r*sinf(a)));
+        }
+        base+=.18f;
+        float a=glm::radians(8.f);
+        for(int n=1;n<=256;++n){
+            float z=3.6f+n*.30f;
+            float drop=base+.18f-getNaturalCoastalTerrainElevation(-6+sinf(a)*z,-110+cosf(a)*z);
+            if(drop>0&&drop/n<=.17f){steps=n;rise=drop/n;run=z;break;}
+        }
+    }
+};
+inline const LighthouseGroundPreparation& lighthouseGroundPreparation(){
+    static const LighthouseGroundPreparation plan;return plan;
+}
+inline float getCoastalTerrainElevation(float x,float z){
+    float natural=getNaturalCoastalTerrainElevation(x,z);
+    // Fast rejection: only a narrow patch immediately in front of the tower.
+    if(x<-11||x>1||z<-108||z>-28)return natural;
+    float a=glm::radians(8.f),dx=x+6,dz=z+110;
+    float localX=cosf(a)*dx-sinf(a)*dz,localZ=sinf(a)*dx+cosf(a)*dz;
+    if(fabsf(localX)>2.4f||localZ<3.25f)return natural;
+    const auto& plan=lighthouseGroundPreparation();
+    float width=1-glm::smoothstep(1.10f,2.40f,fabsf(localX));
+    float ends=glm::smoothstep(3.25f,3.60f,localZ)*(1-glm::smoothstep(plan.run+.10f,plan.run+1.20f,localZ));
+    float cut=plan.base+.18f-(localZ-3.60f)/.30f*plan.rise-.04f;
+    return glm::mix(natural,glm::min(natural,cut),width*ends);
+}
+
 inline float getCoastalSeabedElevation(float z)
 {
     return getCoastalTerrainElevation(0.0f, z);
@@ -462,7 +503,8 @@ public:
     GLuint VAO, VBO, EBO;
     GLsizei indexCount;
 
-    FrustumMesh(float bottomRadius = 0.5f, float topRadius = 0.5f, int segments = 32, bool addCaps = true)
+    FrustumMesh(float bottomRadius = 0.5f, float topRadius = 0.5f, int segments = 32, bool addCaps = true,
+        float wallThickness = 0.0f, float startAngle = 0.0f, float sweepAngle = 6.28318530718f)
         : VAO(0), VBO(0), EBO(0), indexCount(0)
     {
         std::vector<GLfloat> vertices;
@@ -473,7 +515,7 @@ public:
         for (int i = 0; i <= segments; ++i)
         {
             float u = (float)i / (float)segments;
-            float a = u * 6.28318530718f;
+            float a = startAngle + u * sweepAngle;
             float c = cosf(a), s = sinf(a);
             glm::vec3 n = glm::normalize(glm::vec3(c, slope, s));
             float radii[2] = { bottomRadius, topRadius };
@@ -492,13 +534,54 @@ public:
             indices.insert(indices.end(), { b, b + 2, b + 1, b + 1, b + 2, b + 3 });
         }
 
+        // Optional hollow/sector primitive: inner wall, annular caps and real
+        // radial end faces. Used by the lighthouse shell, floors and stair treads.
+        if (wallThickness > 0.0f)
+        {
+            GLuint first = (GLuint)(vertices.size() / 8);
+            for (int i = 0; i <= segments; ++i)
+            {
+                float u = (float)i / segments, a = startAngle + u*sweepAngle;
+                float c=cosf(a),s=sinf(a);
+                glm::vec3 n=-glm::normalize(glm::vec3(c,slope,s));
+                for(int row=0;row<2;++row)
+                {
+                    float r=(row?topRadius:bottomRadius)-wallThickness;
+                    vertices.insert(vertices.end(),{r*c,row?.5f:-.5f,r*s,n.x,n.y,n.z,u,(float)row});
+                }
+            }
+            for(int i=0;i<segments;++i)
+            {
+                GLuint b=first+i*2;
+                indices.insert(indices.end(),{b,b+1,b+2,b+1,b+3,b+2});
+            }
+        }
+
         auto addCap = [&](float y, float radius, float normalY, bool reverse) {
             if (radius <= 0.0001f) return;
+            if(wallThickness>0.0f)
+            {
+                GLuint first=(GLuint)(vertices.size()/8);
+                for(int i=0;i<=segments;++i)
+                {
+                    float a=startAngle+(float)i/segments*sweepAngle;
+                    for(float r:{radius-wallThickness,radius})
+                        vertices.insert(vertices.end(),{r*cosf(a),y,r*sinf(a),0,normalY,0,
+                            .5f+r*cosf(a),.5f+r*sinf(a)});
+                }
+                for(int i=0;i<segments;++i)
+                {
+                    GLuint b=first+i*2;
+                    if(reverse)indices.insert(indices.end(),{b,b+1,b+2,b+1,b+3,b+2});
+                    else indices.insert(indices.end(),{b,b+2,b+1,b+1,b+2,b+3});
+                }
+                return;
+            }
             GLuint center = (GLuint)(vertices.size() / 8);
             vertices.insert(vertices.end(), { 0.0f, y, 0.0f, 0.0f, normalY, 0.0f, 0.5f, 0.5f });
             for (int i = 0; i <= segments; ++i)
             {
-                float a = ((float)i / (float)segments) * 6.28318530718f;
+                float a = startAngle + ((float)i / (float)segments) * sweepAngle;
                 float c = cosf(a), s = sinf(a);
                 vertices.insert(vertices.end(), {
                     radius * c, y, radius * s, 0.0f, normalY, 0.0f,
@@ -515,6 +598,21 @@ public:
         {
             addCap(-0.5f, bottomRadius, -1.0f, true);
             addCap( 0.5f, topRadius,     1.0f, false);
+        }
+        if(wallThickness>0.0f && sweepAngle<6.2831f)
+        {
+            for(int end=0;end<2;++end)
+            {
+                float a=startAngle+end*sweepAngle,c=cosf(a),s=sinf(a);
+                glm::vec3 n=(end?1.f:-1.f)*glm::vec3(-s,0,c);
+                GLuint b=(GLuint)(vertices.size()/8);
+                for(int row=0;row<2;++row)for(int outer=0;outer<2;++outer)
+                {
+                    float r=(row?topRadius:bottomRadius)-(outer?0:wallThickness);
+                    vertices.insert(vertices.end(),{r*c,row?.5f:-.5f,r*s,n.x,n.y,n.z,(float)outer,(float)row});
+                }
+                indices.insert(indices.end(),{b,b+1,b+2,b+1,b+3,b+2});
+            }
         }
 
         indexCount = (GLsizei)indices.size();
@@ -731,7 +829,15 @@ public:
     GLuint VAO, VBO, EBO;
     GLsizei indexCount;
 
-    WaterGridMesh(float xMin = -2600.0f, float xMax = 2600.0f, float zMin = -2600.0f, float zMax = 2600.0f, int resX = 300, int resZ = 300)
+    static constexpr float halfExtent=24000.f,boatLimit=4500.f,cameraLimit=5000.f,viewDistance=12000.f;
+    static float coordinate(float t,float lower,float upper){
+        float span=(upper-lower)*.5f,centre=(upper+lower)*.5f,u=t*2-1;
+        float core=std::min(span,2600.f),r=core*powf(fabsf(u),1.60f);
+        // Leave every vertex within 700 m unchanged; grow only the offshore grid.
+        if(core>700){float outer=glm::clamp((r-700)/(core-700),0.f,1.f);r+=(span-core)*outer*outer;}
+        return centre+copysignf(r,u);
+    }
+    WaterGridMesh(float xMin = -halfExtent, float xMax = halfExtent, float zMin = -halfExtent, float zMax = halfExtent, int resX = 300, int resZ = 300)
         : VAO(0), VBO(0), EBO(0), indexCount(0)
     {
         std::vector<GLfloat> vertices;
@@ -742,16 +848,12 @@ public:
             float tz = (float)i / (float)resZ;
             // Non-linear spacing keeps several-metre tessellation around the
             // island while allowing the ocean to continue past the far clip.
-            float uz = tz * 2.0f - 1.0f;
-            float wz = 0.5f + 0.5f * (uz < 0.0f ? -1.0f : 1.0f) * powf(fabsf(uz), 1.60f);
-            float z = glm::mix(zMin, zMax, wz);
+            float z = coordinate(tz,zMin,zMax);
 
             for (int j = 0; j <= resX; ++j)
             {
                 float tx = (float)j / (float)resX;
-                float ux = tx * 2.0f - 1.0f;
-                float wx = 0.5f + 0.5f * (ux < 0.0f ? -1.0f : 1.0f) * powf(fabsf(ux), 1.60f);
-                float x = glm::mix(xMin, xMax, wx);
+                float x = coordinate(tx,xMin,xMax);
 
                 // Pos (x, 0, z)
                 vertices.push_back(x);
@@ -2221,7 +2323,7 @@ inline void drawRealisticMotorboat(
 
     // Steering wheel plane: Rotates around steering axle with rudderAngle
     glm::mat4 steerWheelCenter = glm::translate(steerCol, glm::vec3(0.0f, 0.0f, -0.07f));
-    steerWheelCenter = glm::rotate(steerWheelCenter, glm::radians(rudderAngle * 2.8f), glm::vec3(0.0f, 0.0f, 1.0f));
+    steerWheelCenter = glm::rotate(steerWheelCenter, glm::radians(-rudderAngle * 2.8f), glm::vec3(0.0f, 0.0f, 1.0f));
 
     // Center Hub with polished chrome cap
     glm::mat4 hubCap = glm::scale(steerWheelCenter, glm::vec3(0.075f, 0.075f, 0.035f));
@@ -3475,16 +3577,22 @@ public:
 // four auxiliary lamps, handlebars, mirrors and a seated robot rider.
 // ============================================================================
 // Local +Z is the front, matching heading and camera navigation.
+inline glm::mat4 beachATVBodyTransform(const glm::mat4& ground,float pitch,float roll)
+{
+    auto body=glm::translate(ground,glm::vec3(0,.5f,0));
+    body=glm::rotate(body,glm::radians(pitch),glm::vec3(1,0,0));
+    body=glm::rotate(body,glm::radians(roll),glm::vec3(0,0,1));
+    return glm::translate(body,glm::vec3(0,-.5f,0));
+}
 inline void drawBeach4WD(
     Shader& shader,const CubeMesh& cube,const SphereMesh& sphere,
     const FrustumMesh& wheelMesh,const glm::mat4& groundTransform,
     float wheelSpin=0,float steering=0,float riderLook=0,bool includeRider=true,
-    float bodyPitch=0,float bodyRoll=0)
+    float bodyPitch=0,float bodyRoll=0,float headlightIntensity=0)
 {
-    glm::mat4 baseTransform=glm::translate(groundTransform,glm::vec3(0,.5f,0));
-    baseTransform=glm::rotate(baseTransform,glm::radians(bodyPitch),glm::vec3(1,0,0));
-    baseTransform=glm::rotate(baseTransform,glm::radians(bodyRoll),glm::vec3(0,0,1));
-    baseTransform=glm::translate(baseTransform,glm::vec3(0,-.5f,0));
+    glm::mat4 baseTransform=beachATVBodyTransform(groundTransform,bodyPitch,bodyRoll);
+    float night=glm::clamp(headlightIntensity,0.f,1.f);
+    glm::vec3 lensColor=glm::mix(glm::vec3(.77f,.84f,.78f),glm::vec3(1,.94f,.78f),night);
     const glm::vec3 green(0.16f,0.28f,0.15f),black(0.045f,0.052f,0.050f);
     const glm::vec3 rubber(0.025f,0.029f,0.027f),chrome(0.62f,0.67f,0.69f);
     auto box=[&](glm::vec3 p,glm::vec3 size,glm::vec3 color,float gloss=24.0f) {
@@ -3591,7 +3699,7 @@ inline void drawBeach4WD(
     for(int side:{-1,1})
     {
         rod(glm::vec3(side*.48f,.51f,1.15f),glm::vec3(side*.42f,.91f,1.13f),.065f,black);
-        box(glm::vec3(side*.38f,.95f,1.036f),glm::vec3(.18f,.15f,.07f),glm::vec3(.8f,.9f,.88f),80);
+        drawTransformedCube(shader,cube,glm::scale(glm::translate(baseTransform,glm::vec3(side*.38f,.95f,1.036f)),glm::vec3(.18f,.15f,.07f)),lensColor,80,.3f,night>.01f?1:0);
         box(glm::vec3(side*.47f,1.04f,1.028f),glm::vec3(.08f,.055f,.045f),glm::vec3(.85f,.32f,.04f));
         box(glm::vec3(side*.35f,.94f,-1.065f),glm::vec3(.18f,.085f,.045f),glm::vec3(.62f,.035f,.02f));
     }
@@ -3605,7 +3713,7 @@ inline void drawBeach4WD(
         drawTransformedFrustum(shader,wheelMesh,glm::scale(lamp,glm::vec3(.19f,.10f,.19f)),black,40,.3f);
         glm::mat4 lens=glm::translate(baseTransform,glm::vec3(x,1.34f,1.058f));
         lens=glm::rotate(lens,glm::radians(90.0f),glm::vec3(1,0,0));
-        drawTransformedFrustum(shader,wheelMesh,glm::scale(lens,glm::vec3(.15f,.013f,.15f)),glm::vec3(.77f,.84f,.78f),100,.8f);
+        drawTransformedFrustum(shader,wheelMesh,glm::scale(lens,glm::vec3(.15f,.013f,.15f)),lensColor,100,.8f,night>.01f?1:0);
     }
     // Handlebars turn with the front axle; mirrors sit above the rider's hands.
     glm::mat4 controls=glm::translate(baseTransform,glm::vec3(0,1.42f,.22f));
@@ -3708,6 +3816,159 @@ inline glm::mat4 lighthouseWindowTransform(const glm::mat4& base,int pane,float 
     return glm::rotate(m,1.570796327f-angle,glm::vec3(0,1,0));
 }
 
+// Reusable annular geometry: no per-frame mesh allocation. The tower's existing
+// 14 m height is retained; five utility/keeper levels fit below the lantern.
+struct LighthouseAccess {
+    static constexpr float siteX=-6,siteZ=-110,siteYaw=8;
+    static constexpr int spiralSteps=72;
+    static constexpr float stairAngle=.261799388f,stairRise=(14.03f-.25f)/(spiralSteps-1);
+    static constexpr float walkRadius=.76f,stairOuter=1.20f,floorOpening=1.24f;
+    static constexpr float landingY=.18f,landingEdge=3.60f,going=.30f;
+    float baseHeight=0,approachRise=.15f;
+    int approachSteps=1;
+    explicit LighthouseAccess(float height=0):baseHeight(height){
+        const auto& plan=lighthouseGroundPreparation();
+        approachSteps=plan.steps;
+        approachRise=plan.rise;
+    }
+    glm::mat4 transform()const{
+        return glm::rotate(glm::translate(glm::mat4(1),{siteX,baseHeight,siteZ}),glm::radians(siteYaw),glm::vec3(0,1,0));
+    }
+    glm::vec3 world(glm::vec3 p)const{return glm::vec3(transform()*glm::vec4(p,1));}
+    glm::vec3 spiralPoint(int step)const{
+        step=glm::clamp(step,0,spiralSteps-1);
+        float a=1.570796327f+(step+.5f)*stairAngle;
+        return {walkRadius*cosf(a),.25f+step*stairRise+.0375f,walkRadius*sinf(a)};
+    }
+    float approachTop(int fromTop)const{return landingY-fromTop*approachRise;}
+    float footZ()const{return landingEdge+approachSteps*going;}
+};
+
+// Separate upper and lower annular walls leave a real opening at +Z.
+// The lower radial end faces are the doorway reveals, rather than a painted box.
+class LighthouseEntranceShell {
+    static constexpr float doorwayHeight=2.45f;
+    static constexpr float joinRadius=.5f-(.5f-.34f)*doorwayHeight/14;
+    FrustumMesh lower{.5f,joinRadius,72,true,.065f,1.870796327f,5.683185307f};
+    FrustumMesh upper{joinRadius,.34f,72,true,.065f};
+public:
+    void draw(Shader& shader,const glm::mat4& base)const{
+        drawTransformedFrustum(shader,lower,glm::scale(glm::translate(base,{0,doorwayHeight*.5f,0}),
+            {4.6f,doorwayHeight,4.6f}),{.88f,.86f,.78f},24,.18f);
+        drawTransformedFrustum(shader,upper,glm::scale(glm::translate(base,{0,(14+doorwayHeight)*.5f,0}),
+            {4.6f,14-doorwayHeight,4.6f}),{.88f,.86f,.78f},24,.18f);
+    }
+    void cleanup(){lower.cleanup();upper.cleanup();}
+};
+
+class LighthouseInterior {
+    FrustumMesh tread{.5f,.5f,4,true,.38f,0,LighthouseAccess::stairAngle};
+    FrustumMesh lensRing{.5f,.5f,48,true,.025f};
+    std::vector<FrustumMesh> floors,cutFloors;
+public:
+    static constexpr int steps=LighthouseAccess::spiralSteps;
+    static constexpr float rise=LighthouseAccess::stairRise;
+    LighthouseInterior(){
+        floors.reserve(6);cutFloors.reserve(6);
+        for(int i=0;i<6;++i){
+            float y=i==5?14.15f:.12f+i*2.8f;
+            float radius=i==5?2.7f:2.3f-(2.3f-1.564f)*y/14.f-.31f;
+            float thickness=i==0?0:.5f-LighthouseAccess::floorOpening/(2*radius);
+            floors.emplace_back(.5f,.5f,64,true,thickness);
+            cutFloors.emplace_back(.5f,.5f,32,true,thickness,3.141592654f,3.141592654f);
+        }
+    }
+    void draw(Shader& shader,const CubeMesh& cube,const FrustumMesh& cylinder,
+        const glm::mat4& base,bool cutaway,float heading,float night){
+        GLint oldTexture=0;glGetUniformiv(shader.ID,shader.location("useTexture"),&oldTexture);
+        glUniform1i(shader.location("useTexture"),0);
+        const glm::vec3 iron(.12f,.16f,.18f),brass(.58f,.39f,.13f),wood(.40f,.24f,.12f);
+        auto box=[&](glm::vec3 p,glm::vec3 s,glm::vec3 color){
+            drawTransformedCube(shader,cube,glm::scale(glm::translate(base,p),s),color,36,.25f);
+        };
+        auto tube=[&](glm::vec3 a,glm::vec3 b,float diameter,glm::vec3 color){
+            glm::vec3 delta=b-a;float length=glm::length(delta);if(length<.0001f)return;
+            glm::vec3 dir=delta/length,axis=glm::cross(glm::vec3(0,1,0),dir);
+            glm::mat4 m=glm::translate(base,(a+b)*.5f);
+            if(glm::length(axis)>.0001f)m=glm::rotate(m,acosf(glm::clamp(dir.y,-1.f,1.f)),glm::normalize(axis));
+            else if(dir.y<0)m=glm::rotate(m,3.141592654f,glm::vec3(1,0,0));
+            drawTransformedFrustum(shader,cylinder,glm::scale(m,{diameter,length,diameter}),color,52,.4f);
+        };
+        for(int i=0;i<6;++i){
+            float y=i==5?14.15f:.12f+i*2.8f;
+            float radius=i==5?2.7f:2.3f-(2.3f-1.564f)*y/14.f-.31f;
+            drawTransformedFrustum(shader,cutaway?cutFloors[i]:floors[i],
+                glm::scale(glm::translate(base,{0,y,0}),{2*radius,.12f,2*radius}),
+                i==5?iron:glm::vec3(.56f,.52f,.43f),32,.15f);
+        }
+        tube({0,.15f,0},{0,14.2f,0},.16f,iron);
+        for(int i=0;i<steps;++i){
+            float a=1.570796327f+i*LighthouseAccess::stairAngle,y=.25f+i*rise;
+            auto m=glm::rotate(glm::translate(base,{0,y,0}),-a,glm::vec3(0,1,0));
+            drawTransformedFrustum(shader,tread,glm::scale(m,{2.4f,.075f,2.4f}),iron,48,.4f);
+            if(i%3==0){
+                glm::vec3 post(1.23f*cosf(a),y+.06f,1.23f*sinf(a));
+                tube(post,post+glm::vec3(0,.92f,0),.035f,brass);
+            }
+            if(i>0){
+                float previous=a-LighthouseAccess::stairAngle;
+                tube({1.23f*cosf(previous),y-rise+.98f,1.23f*sinf(previous)},
+                     {1.23f*cosf(a),y+.98f,1.23f*sinf(a)},.045f,brass);
+            }
+        }
+        // Ground: water reservoir and generator, with pipes/control panel.
+        drawTransformedFrustum(shader,cylinder,glm::scale(glm::translate(base,{-.75f,.85f,-1.35f}),
+            {.72f,1.3f,.72f}),glm::vec3(.20f,.40f,.43f),48,.4f);
+        tube({-.75f,1.5f,-1.35f},{-.75f,1.85f,-1.35f},.08f,brass);
+        box({.85f,.65f,-1.35f},{.78f,.8f,.5f},iron);
+        box({.85f,1.1f,-1.35f},{.55f,.12f,.42f},brass);
+        box({.85f,.8f,-1.08f},{.35f,.25f,.025f},glm::vec3(.25f,.57f,.56f));
+        // First keeper level: shelving and supplies along the masonry wall.
+        for(float x:{-.60f,.60f})box({x,3.55f,-1.48f},{.055f,1.1f,.32f},wood);
+        for(int shelf=0;shelf<3;++shelf){
+            float y=3.04f+shelf*.45f;box({0,y,-1.48f},{1.25f,.055f,.38f},wood);
+            for(int j=0;j<3;++j)box({-.4f+j*.4f,y+.15f,-1.48f},{.27f,.24f,.25f},glm::vec3(.56f,.40f,.22f));
+        }
+        // Living level: compact bench, table and a keeper's logbook.
+        box({0,6.02f,-1.40f},{1.05f,.4f,.38f},wood);
+        box({0,6.37f,-1.55f},{1.05f,.6f,.065f},wood);
+        for(float x:{-.42f,.42f})box({x,5.88f,-1.4f},{.08f,.35f,.25f},iron);
+        box({.92f,6.26f,-.95f},{.4f,.07f,.4f},wood);
+        box({.92f,5.98f,-.95f},{.06f,.5f,.06f},iron);
+        box({.92f,6.32f,-.95f},{.22f,.035f,.15f},glm::vec3(.8f,.76f,.57f));
+        // Sleeping level: tangential bunk and pillow.
+        box({0,8.82f,-1.25f},{1.0f,.3f,.40f},wood);
+        box({0,9.02f,-1.25f},{.94f,.12f,.38f},glm::vec3(.31f,.47f,.53f));
+        box({-.32f,9.12f,-1.25f},{.25f,.10f,.32f},glm::vec3(.85f,.83f,.70f));
+        // Service level: electrical cabinet, small motor and drive shaft.
+        box({-.48f,11.85f,-1.1f},{.58f,.9f,.28f},iron);
+        for(int j=0;j<3;++j)box({-.64f+j*.16f,12.05f,-.945f},{.07f,.07f,.025f},brass);
+        box({.43f,11.7f,-1.08f},{.45f,.6f,.30f},wood);
+        tube({.43f,12.0f,-1.08f},{.43f,14.9f,-1.08f},.07f,brass);
+        // Fresnel-style concentric bands and rotating optic support. These are
+        // modelled lens rings; the existing beam shader remains an approximation.
+        auto opticMount=glm::translate(base,{0,0,-.55f});
+        auto opticBase=glm::rotate(opticMount,glm::radians(heading),glm::vec3(0,1,0));
+        for(int i=0;i<11;++i){
+            float h=-.48f+i*.096f,diameter=1.05f+.22f*(1-h*h/.25f);
+            drawTransformedFrustum(shader,lensRing,
+                glm::scale(glm::translate(opticMount,{0,15.55f+h,0}),{diameter,.024f,diameter}),
+                glm::vec3(.43f,.67f,.67f),96,.65f);
+        }
+        for(float z:{-.69f,.69f}){
+            auto m=glm::scale(glm::translate(opticBase,{0,15.55f,z}),{.065f,1.25f,.065f});
+            drawTransformedCube(shader,cube,m,brass,72,.5f);
+        }
+        box({0,14.78f,-.55f},{.65f,.15f,.65f},brass);
+        // Warm wall fittings remain visible in the cutaway at night.
+        for(int i=0;i<5;++i)
+            drawTransformedCube(shader,cube,glm::scale(glm::translate(base,{0,.12f+i*2.8f+1.7f,-1.18f}),
+                {.16f,.12f,.08f}),glm::mix(glm::vec3(.65f,.58f,.36f),glm::vec3(1,.83f,.46f),night),8,.1f,1);
+        glUniform1i(shader.location("useTexture"),oldTexture);
+    }
+    void cleanup(){tread.cleanup();lensRing.cleanup();for(auto& m:floors)m.cleanup();for(auto& m:cutFloors)m.cleanup();}
+};
+
 // Transparent effects must not leak depth/blend/cull or material flags into
 // the ocean, the next scene object or the interface.
 struct LighthouseTransparentState {
@@ -3739,7 +4000,7 @@ inline void drawLighthouse(
     const FrustumMesh& roofMesh,
     const glm::mat4& baseTransform,
     float time,
-    float nightIntensity=0)
+    float nightIntensity=0,bool cutaway=false,const LighthouseEntranceShell* entrance=nullptr)
 {
     const glm::vec3 whiteStone(0.88f, 0.86f, 0.78f);
     const glm::vec3 redBand(0.72f, 0.07f, 0.055f);
@@ -3752,13 +4013,25 @@ inline void drawLighthouse(
     // Paint on the shaft itself, rather than intersecting straight cylinders
     // with a tapered wall (which produced jagged, flickering stripe edges).
     glUniform1i(shader.location("lighthouseShaftPass"), 1);
-    drawTransformedFrustum(shader, towerMesh, tower, whiteStone, 24.0f, 0.18f);
+    glUniform3fv(shader.location("lighthouseLightOrigin"),1,glm::value_ptr(glm::vec3(baseTransform[3])));
+    if(entrance&&!cutaway)entrance->draw(shader,baseTransform);
+    else drawTransformedFrustum(shader, towerMesh, tower, whiteStone, 24.0f, 0.18f);
     glUniform1i(shader.location("lighthouseShaftPass"), 0);
 
     // Human scale: 1.05 m wide x 2.25 m high entrance.
     glm::mat4 door = glm::translate(baseTransform, glm::vec3(0.0f, 1.13f, 2.24f));
     door = glm::scale(door, glm::vec3(1.05f, 2.25f, 0.12f));
-    drawTransformedCube(shader, cube, door, darkMetal, 28.0f, 0.20f);
+    if(!cutaway&&!entrance)drawTransformedCube(shader, cube, door, darkMetal, 28.0f, 0.20f);
+    if(entrance&&!cutaway){
+        // Stone lintel and a visibly open timber leaf beside the passage.
+        drawTransformedCube(shader,cube,glm::scale(glm::translate(baseTransform,{0,2.46f,2.10f}),
+            {1.48f,.20f,.40f}),whiteStone*.82f,18,.1f);
+        auto leaf=glm::rotate(glm::translate(baseTransform,{-.62f,1.26f,2.08f}),glm::radians(-100.f),glm::vec3(0,1,0));
+        drawTransformedCube(shader,cube,glm::scale(glm::translate(leaf,{.59f,0,0}),{1.18f,2.12f,.065f}),
+            {.27f,.18f,.10f},22,.1f);
+        for(float y:{.32f,2.16f})drawTransformedCube(shader,cube,
+            glm::scale(glm::translate(leaf,{.59f,y-1.26f,.042f}),{1.08f,.06f,.025f}),darkMetal,36,.2f);
+    }
 
     for (int level = 0; level < 2; ++level)
     {
@@ -3766,12 +4039,10 @@ inline void drawLighthouse(
         float radius = 1.94f - (float)level * 0.22f;
         glm::mat4 window = glm::translate(baseTransform, glm::vec3(0.0f, y, radius));
         window = glm::scale(window, glm::vec3(0.58f, 0.92f, 0.10f));
-        drawTransformedCube(shader, cube, window, lanternGlass, 72.0f, 0.65f);
+        if(!cutaway)drawTransformedCube(shader, cube, window, lanternGlass, 72.0f, 0.65f);
     }
 
-    glm::mat4 gallery = glm::translate(baseTransform, glm::vec3(0.0f, 14.15f, 0.0f));
-    gallery = glm::scale(gallery, glm::vec3(5.4f, 0.24f, 5.4f));
-    drawTransformedFrustum(shader, cylinderMesh, gallery, darkMetal, 42.0f, 0.35f);
+    // The interior renderer supplies an annular gallery with a stair opening.
 
     const float bottom=LighthouseLanternDimensions::bottom,top=LighthouseLanternDimensions::top;
     const float radius=LighthouseLanternDimensions::radius;
@@ -3808,9 +4079,9 @@ inline void drawLighthouse(
     drawTransformedFrustum(shader, roofMesh, roof, redBand, 38.0f, 0.35f);
 
     // The lamp itself is steady; the rotating focused optic creates the flash.
-    auto pedestal=glm::translate(baseTransform,glm::vec3(0,14.89f,0));
-    drawTransformedCube(shader,cube,glm::scale(pedestal,{.28f,1.05f,.28f}),darkMetal,28,.2f);
-    glm::mat4 optic=glm::translate(baseTransform,glm::vec3(0,LighthouseLanternDimensions::opticY,0));
+    auto pedestal=glm::translate(baseTransform,glm::vec3(0,14.89f,-.55f));
+    drawTransformedFrustum(shader,cylinderMesh,glm::scale(pedestal,{.32f,1.05f,.32f}),darkMetal,28,.2f);
+    glm::mat4 optic=glm::translate(baseTransform,glm::vec3(0,LighthouseLanternDimensions::opticY,-.55f));
     optic=glm::scale(optic,glm::vec3(.80f));
     glm::vec3 lamp=glm::mix(glm::vec3(.72f,.62f,.38f),glm::vec3(1,.91f,.58f),glm::clamp(nightIntensity,0.f,1.f));
     drawTransformedSphere(shader,sphere,optic,lamp,1,0,1);
@@ -3853,7 +4124,7 @@ inline void drawLighthouseBeacon(
     // One revolution in roughly 6.5 seconds, producing a recognizable flash
     // characteristic whenever the narrow beam passes an observer.
     float sweep = headingDegrees>=0?headingDegrees:time * 55.0f;
-    glm::mat4 beam = glm::translate(lighthouseTransform, glm::vec3(0.0f, LighthouseLanternDimensions::opticY, 0.0f));
+    glm::mat4 beam = glm::translate(lighthouseTransform, glm::vec3(0.0f, LighthouseLanternDimensions::opticY, -.55f));
     beam = glm::rotate(beam, glm::radians(sweep), glm::vec3(0.0f, 1.0f, 0.0f));
     // Tilt around the optic, before translating to the cone centre, so aiming
     // never moves the beam's origin away from the lantern.
@@ -5423,10 +5694,10 @@ struct SolidObstacle {
     static SolidObstacle box(const glm::mat4& transform,glm::vec2 half){return {{transform[3].x,transform[3].z},half,atan2f(transform[2].x,transform[2].z),0};}
 };
 inline std::vector<SolidObstacle> g_atvObstacles;
-inline bool atvTouchesObstacle(glm::vec3 p,float heading,const SolidObstacle& obstacle) {
+inline bool solidFootprintTouchesObstacle(glm::vec3 p,float heading,glm::vec2 half,const SolidObstacle& obstacle) {
     float angle=glm::radians(heading);
     glm::vec2 right(cosf(angle),-sinf(angle)),forward(sinf(angle),cosf(angle));
-    glm::vec2 delta=obstacle.center-glm::vec2(p.x,p.z),half(.97f,1.18f);
+    glm::vec2 delta=obstacle.center-glm::vec2(p.x,p.z);
     float bound=glm::length(half)+(obstacle.radius>0?obstacle.radius:glm::length(obstacle.halfSize));
     if(glm::dot(delta,delta)>bound*bound)return false;
     if(obstacle.radius>0){
@@ -5440,6 +5711,41 @@ inline bool atvTouchesObstacle(glm::vec3 p,float heading,const SolidObstacle& ob
         if(fabsf(glm::dot(delta,axis))>=a+b)return false;
     }
     return true;
+}
+inline bool atvTouchesObstacle(glm::vec3 p,float heading,const SolidObstacle& obstacle){
+    return solidFootprintTouchesObstacle(p,heading,{.97f,1.18f},obstacle);
+}
+// The motorboat's conservative hull footprint includes its bow and outboard.
+inline bool boatPoseClear(glm::vec3 p,float heading,const std::vector<SolidObstacle>& solids,
+                          const std::vector<SolidObstacle>& boats){
+    if(fabsf(p.x)>WaterGridMesh::boatLimit || fabsf(p.z)>WaterGridMesh::boatLimit)return false;
+    float a=glm::radians(heading);glm::vec3 f(sinf(a),0,cosf(a)),r(cosf(a),0,-sinf(a));
+    for(int station=0;station<=10;++station)for(float side:{-1.3f,0.f,1.3f}){
+        auto q=p+f*(-3.8f+station*.76f)+r*side;
+        if(getIslandSignedDistance(q.x,q.z)>=-3.f)return false;
+    }
+    for(const auto* group:{&solids,&boats})for(const auto& obstacle:*group)
+        if(solidFootprintTouchesObstacle(p,heading,{1.3f,3.8f},obstacle))return false;
+    return true;
+}
+struct BoatContactPose {glm::vec3 pos;float heading;bool blocked=false;};
+inline BoatContactPose sweepBoatMotion(glm::vec3 from,float fromHeading,glm::vec3 to,float toHeading,
+                                      const std::vector<SolidObstacle>& solids,const std::vector<SolidObstacle>& boats){
+    float turn=glm::radians(toHeading-fromHeading);
+    turn=atan2f(sinf(turn),cosf(turn));toHeading=fromHeading+glm::degrees(turn);
+    int steps=std::max(1,(int)ceilf((glm::distance(from,to)+4.02f*fabsf(turn))/.08f));
+    BoatContactPose safe{from,fromHeading,false};
+    for(int step=1;step<=steps;++step){
+        float t=(float)step/steps;auto p=glm::mix(from,to,t);float heading=glm::mix(fromHeading,toHeading,t);
+        if(!boatPoseClear(p,heading,solids,boats)){
+            float lo=(float)(step-1)/steps,hi=t;
+            for(int i=0;i<14;++i){float mid=(lo+hi)*.5f;
+                if(boatPoseClear(glm::mix(from,to,mid),glm::mix(fromHeading,toHeading,mid),solids,boats))lo=mid;else hi=mid;}
+            return {glm::mix(from,to,lo),glm::mix(fromHeading,toHeading,lo),true};
+        }
+        safe={p,heading,false};
+    }
+    return safe;
 }
 inline bool atvSolidsClear(glm::vec3 p,float heading) {
     for(const auto& obstacle:g_atvObstacles)if(atvTouchesObstacle(p,heading,obstacle))return false;return true;
@@ -5532,7 +5838,8 @@ inline void stepBeachATV(BeachATVState& state,const BeachCircuit& circuit,
         float change=state.heading-previousHeading;
         while(change>180)change-=360;while(change<-180)change+=360;
         float curvature=glm::radians(change)/glm::max(travel,0.001f);
-        state.steering=glm::clamp(glm::degrees(atanf(curvature*1.6f)),-30.0f,30.0f);
+        state.steering=glm::clamp(glm::degrees(atanf(curvature*1.56f)),-30.0f,30.0f);
+        state.yawRate=glm::radians(change)/dt;
     }
     else
     {
@@ -5562,14 +5869,26 @@ inline void stepBeachATV(BeachATVState& state,const BeachCircuit& circuit,
             state.speed=glm::clamp(next,-2.0f,9.0f);
         }
         float steeringLimit=32.0f/(1+.018f*state.speed*state.speed);
-        float desiredSteering=steer*steeringLimit;
+        // Local forward is +Z. In this right-handed frame positive Y rotation
+        // turns LEFT when looking forward. Positive input (D) must be negative yaw.
+        float desiredSteering=rightTurnYaw(steer)*steeringLimit;
         state.steering+=glm::clamp(desiredSteering-state.steering,-85*dt,85*dt);
         float desiredYaw=state.speed/1.56f*tanf(glm::radians(state.steering));
         desiredYaw=glm::clamp(desiredYaw,-2.8f/glm::max(fabsf(state.speed),1.0f),2.8f/glm::max(fabsf(state.speed),1.0f));
-        state.yawRate=glm::mix(state.yawRate,desiredYaw,1-expf(-7*dt));
-        float candidateHeading=state.heading+glm::degrees(state.yawRate)*dt;
-        float a=glm::radians(candidateHeading);
-        glm::vec3 candidate=state.pos+glm::vec3(sinf(a),0,cosf(a))*state.speed*dt;
+        // Tyre grip couples heading to travelled distance, not angular momentum.
+        // Smooth the handlebar above, never retain boat-like yaw after stopping.
+        state.yawRate=desiredYaw;
+        float turn=state.yawRate*dt;
+        float startAngle=glm::radians(state.heading);
+        float candidateHeading=state.heading+glm::degrees(turn);
+        glm::vec3 candidate=state.pos;
+        if(fabsf(turn)>0.00001f) {
+            float radius=state.speed/state.yawRate;
+            candidate+=glm::vec3(radius*(cosf(startAngle)-cosf(startAngle+turn)),0,
+                                 radius*(sinf(startAngle+turn)-sinf(startAngle)));
+        } else {
+            candidate+=glm::vec3(sinf(startAngle+turn*.5f),0,cosf(startAngle+turn*.5f))*state.speed*dt;
+        }
         if(atvFootprintIsDry(candidate,candidateHeading))
         {state.pos=candidate;state.heading=candidateHeading;}
         else
@@ -5789,6 +6108,7 @@ enum ViewPreset
     VIEW_RIGHT_BEACH,
     VIEW_SEA_BOATS,
     VIEW_STILT_HOUSE,
+    VIEW_TOWER_TOP,
     VIEW_PRESET_COUNT
 };
 
@@ -5832,6 +6152,7 @@ public:
     bool realisticNavigation = false;
     float (*surfaceHeight)(float, float) = nullptr;
     bool riderViewActive = false;
+    float towerBaseHeight=0;
     glm::vec3 riderEye = glm::vec3(0.0f);
     glm::vec3 riderDirection = glm::vec3(0,0,1);
 
@@ -5845,8 +6166,8 @@ public:
         auto constrainOrbit = [&](glm::vec3& lookAt,float& radius,float azimuth,float& elevation) {
             radius=glm::clamp(radius,2.5f,600.0f);
             elevation=glm::clamp(elevation,3.0f,85.0f);
-            lookAt.x=glm::clamp(lookAt.x,-1100.0f,1100.0f);
-            lookAt.z=glm::clamp(lookAt.z,-1100.0f,1100.0f);
+            lookAt.x=glm::clamp(lookAt.x,-WaterGridMesh::cameraLimit,WaterGridMesh::cameraLimit);
+            lookAt.z=glm::clamp(lookAt.z,-WaterGridMesh::cameraLimit,WaterGridMesh::cameraLimit);
             float ground=floorAt(lookAt.x,lookAt.z);
             lookAt.y=glm::max(lookAt.y,(ground>1.15f?ground:0.0f)+0.6f);
             float p=glm::radians(elevation),y=glm::radians(azimuth);
@@ -5869,7 +6190,7 @@ public:
 
     Camera(glm::vec3 targetPos = glm::vec3(0.0f, 1.0f, 0.0f), float dist = 12.0f)
         : target(targetPos), distance(dist), yaw(45.0f), pitch(22.0f),
-          fov(45.0f), nearPlane(0.1f), farPlane(2000.0f),
+          fov(45.0f), nearPlane(0.1f), farPlane(WaterGridMesh::viewDistance),
           projMode(PROJ_PERSPECTIVE), orthoSize(22.0f),
           firstMouse(true), lastX(0.0), lastY(0.0),
           isDraggingOrbit(false), isDraggingPan(false),
@@ -5975,6 +6296,7 @@ public:
 
     void setPreset(ViewPreset preset, GLFWwindow* window = nullptr)
     {
+        riderViewActive=false;
         currentPresetIndex = (int)preset;
         std::string name = "";
 
@@ -5994,6 +6316,12 @@ public:
             desiredYaw = 22.0f;
             desiredPitch = 16.0f;
             name = "Hilltop Lighthouse [Key: T]";
+            break;
+
+        case VIEW_TOWER_TOP:
+            desiredTarget=LighthouseAccess(towerBaseHeight).world({0,15.99f,2.04f});
+            desiredDistance=2.5f;desiredYaw=8;desiredPitch=3;
+            name="Lighthouse observation gallery [Key: V]";
             break;
 
         case VIEW_ROBOT:
@@ -6052,7 +6380,7 @@ public:
             break;
         }
 
-        isTransitioning = true;
+        isTransitioning = preset!=VIEW_TOWER_TOP;
         std::cout << "\n>>> [Camera View Preset] " << name << " <<<\n"
                   << "    Target: (" << desiredTarget.x << ", " << desiredTarget.y << ", " << desiredTarget.z << ")"
                   << " | Distance: " << desiredDistance << "m\n" << std::endl;
@@ -6308,9 +6636,13 @@ inline RobotLegPose seatedBeachRobotLegs()
 struct BeachRobotState {
     glm::vec3 pos;
     float heading=-12,speed=0,phase=0,gaitBlend=0;
+    float turnRate=0; // Degrees/second, controlled by foot pivots, not a rudder.
+    float batteryPercent=75;
+    bool charging=false;
+    static constexpr float chargePerSecond=100.f/30.f,percentPerMetre=.05f;
     bool active=false,keyDown=false,blocked=false;
     BeachRobotState(){pos=glm::vec3(standingBeachRobotTransform()[3]);pos.y=getCoastalTerrainElevation(pos.x,pos.z);}
-    bool press(bool down){bool edge=down&&!keyDown;keyDown=down;if(edge){active=!active;speed=0;blocked=false;}return edge;}
+    bool press(bool down){bool edge=down&&!keyDown;keyDown=down;if(edge){active=!active;speed=turnRate=0;blocked=false;}return edge;}
 };
 
 inline bool beachRobotPositionClear(glm::vec3 p,const std::vector<SolidObstacle>& obstacles,
@@ -6333,26 +6665,51 @@ inline bool beachRobotPositionClear(glm::vec3 p,const std::vector<SolidObstacle>
     return !atv || !atvTouchesObstacle(atv->pos,atv->heading,SolidObstacle::circle(p,.46f));
 }
 
+inline float robotChargerDistance(const BeachRobotState& state,const BeachCircuit& circuit)
+{
+    glm::vec3 charger(beachChargingStationTransform(circuit)*glm::vec4(1.23f,0,.65f,1));
+    return glm::length(glm::vec2(state.pos.x-charger.x,state.pos.z-charger.z));
+}
+inline bool canConnectRobotCharger(const BeachRobotState& state,const BeachCircuit& circuit,
+    const std::vector<SolidObstacle>& obstacles,const BeachATVState* atv=nullptr)
+{
+    return fabsf(state.speed)<=.1f && robotChargerDistance(state,circuit)<=1.75f &&
+        beachRobotPositionClear(state.pos,obstacles,atv);
+}
+
 inline void updateBeachRobot(BeachRobotState& state,float walk,float turn,float dt,
     const std::vector<SolidObstacle>& obstacles,const BeachATVState* atv=nullptr)
 {
     if(!std::isfinite(dt) || dt<=0)return;
+    if(state.charging){
+        state.batteryPercent=glm::min(100.f,state.batteryPercent+BeachRobotState::chargePerSecond*dt);
+        state.speed=state.turnRate=state.gaitBlend=0;state.blocked=false;return;
+    }
     dt=glm::min(dt,.25f);int steps=glm::max(1,(int)ceilf(dt/.008f));float h=dt/steps;
-    walk=state.active?glm::clamp(walk,-1.f,1.f):0;turn=state.active?glm::clamp(turn,-1.f,1.f):0;
+    walk=state.active&&state.batteryPercent>0?glm::clamp(walk,-1.f,1.f):0;
+    turn=state.active&&state.batteryPercent>0?glm::clamp(turn,-1.f,1.f):0;
     state.blocked=false;
     for(int i=0;i<steps;++i)
     {
-        state.heading=std::remainder(state.heading+turn*100*h,360.f);
+        if(state.batteryPercent<=0)walk=turn=state.speed=state.turnRate=0;
+        // D is anatomical right: cross(forward, up), hence negative Y yaw.
+        float desiredTurn=rightTurnYaw(turn)*100.f;
+        state.turnRate+=glm::clamp(desiredTurn-state.turnRate,-720*h,720*h);
+        float oldHeading=state.heading;
+        state.heading=std::remainder(state.heading+state.turnRate*h,360.f);
         float goal=walk*(walk<0?1.0f:1.65f);
         state.speed+=glm::clamp(goal-state.speed,-5*h,5*h);
-        float yaw=glm::radians(state.heading);glm::vec3 direction(sinf(yaw),0,cosf(yaw));
+        float yaw=glm::radians(oldHeading+state.turnRate*h*.5f);glm::vec3 direction(sinf(yaw),0,cosf(yaw));
         glm::vec3 candidate=state.pos+direction*(state.speed*h);
         if(fabsf(state.speed)>.0001f && !beachRobotPositionClear(candidate,obstacles,atv))
         {state.speed=0;state.blocked=true;}
-        else {state.phase=std::remainder(state.phase+state.speed*h*6.283185307f/.72f,6.283185307f);state.pos=candidate;}
-        if(fabsf(state.speed)<.1f && turn!=0)
-            state.phase=std::remainder(state.phase+fabsf(turn)*h*4,6.283185307f);
-        float gaitGoal=glm::min(glm::max(fabsf(state.speed)/.6f,fabsf(turn)*.65f),1.f);
+        else {state.phase=std::remainder(state.phase+state.speed*h*6.283185307f/.72f,6.283185307f);state.pos=candidate;
+            state.batteryPercent=glm::max(0.f,state.batteryPercent-fabsf(state.speed*h)*BeachRobotState::percentPerMetre);
+            if(state.batteryPercent<=0)state.speed=0;}
+        float pivot=fabsf(state.turnRate)/100.f;
+        if(fabsf(state.speed)<.1f && pivot>0)
+            state.phase=std::remainder(state.phase+pivot*h*4,6.283185307f);
+        float gaitGoal=glm::min(glm::max(fabsf(state.speed)/.6f,pivot*.65f),1.f);
         state.gaitBlend=glm::mix(state.gaitBlend,gaitGoal,1-expf(-12*h));
     }
     state.pos.y=getCoastalTerrainElevation(state.pos.x,state.pos.z);
@@ -6425,12 +6782,23 @@ public:
     }
     size_t count()const{return positions.size();}
     const std::vector<glm::vec4>& locations()const{return positions;}
-    void bind(Shader& shader,float hour) const
+    void bind(Shader& shader,float hour,const glm::mat4* atvBody=nullptr) const
     {
         shader.Activate();
-        glUniform1i(shader.location("nightLightCount"),(int)positions.size());
-        glUniform4fv(shader.location("nightLightPositions[0]"),(int)positions.size(),glm::value_ptr(positions[0]));
-        glUniform4fv(shader.location("nightLightColors[0]"),(int)colors.size(),glm::value_ptr(colors[0]));
+        auto lights=positions,lightColors=colors;
+        std::vector<glm::vec4> directions(lights.size(),glm::vec4(0));
+        if(atvBody && lights.size()<=20){
+            auto direction=glm::normalize(glm::vec3(*atvBody*glm::vec4(0,-.10f,1,0)));
+            for(int side:{-1,1}){
+                auto source=glm::vec3(*atvBody*glm::vec4(side*.38f,.95f,1.08f,1));
+                lights.emplace_back(source,28.f);lightColors.emplace_back(1,.94f,.78f,8.f);
+                directions.emplace_back(direction,1.f);
+            }
+        }
+        glUniform1i(shader.location("nightLightCount"),(int)lights.size());
+        glUniform4fv(shader.location("nightLightPositions[0]"),(int)lights.size(),glm::value_ptr(lights[0]));
+        glUniform4fv(shader.location("nightLightColors[0]"),(int)lightColors.size(),glm::value_ptr(lightColors[0]));
+        glUniform4fv(shader.location("nightLightDirections[0]"),(int)directions.size(),glm::value_ptr(directions[0]));
         glUniform1f(shader.location("nightLightIntensity"),islandNightIntensity(hour));
     }
     void draw(Shader& shader,const CubeMesh& cube,const SphereMesh& sphere,float hour)const
@@ -6715,6 +7083,12 @@ class LighthouseSite
         for(glm::vec3 p:{a,b,c})
             vertices.insert(vertices.end(),{p.x,p.y,p.z,n.x,n.y,n.z,p.x,p.z});
     }
+    void accessBox(glm::vec3 low,glm::vec3 high,const LighthouseAccess& access){
+        glm::vec3 p[8];
+        for(int i=0;i<8;++i)p[i]=access.world({i&1?high.x:low.x,i&2?high.y:low.y,i&4?high.z:low.z});
+        const int faces[6][4]={{0,4,6,2},{1,3,7,5},{0,1,5,4},{2,6,7,3},{0,2,3,1},{4,5,7,6}};
+        for(auto& f:faces){triangle(p[f[0]],p[f[1]],p[f[2]]);triangle(p[f[0]],p[f[2]],p[f[3]]);}
+    }
 public:
     static constexpr float x=-6,z=-110,radius=3.2f;
     LighthouseSite()
@@ -6735,6 +7109,15 @@ public:
             glm::vec3 lowQ(q.x,getCoastalTerrainElevation(q.x,q.z)-1.5f,q.z);
             triangle(glm::vec3(x,top,z),q,p);
             triangle(p,q,lowP);triangle(q,lowQ,lowP);
+        }
+        LighthouseAccess access(top);
+        // A broad landing joins the circular plinth to a terrain-sized stair flight.
+        accessBox({-.95f,-.12f,2.10f},{.95f,LighthouseAccess::landingY,LighthouseAccess::landingEdge},access);
+        for(int i=0;i<access.approachSteps;++i){
+            float nearZ=access.landingEdge+i*access.going,farZ=nearZ+access.going;
+            auto near=access.world({0,0,nearZ}),far=access.world({0,0,farZ});
+            float low=glm::min(getCoastalTerrainElevation(near.x,near.z),getCoastalTerrainElevation(far.x,far.z))-top-.16f;
+            accessBox({-.95f,low,nearZ},{.95f,access.approachTop(i),farZ},access);
         }
         glGenVertexArrays(1,&vao);glGenBuffers(1,&vbo);
         glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,vbo);
@@ -6762,11 +7145,112 @@ public:
         glUniform1i(shader.location("unlit"),0);
         glUniform1f(shader.location("shininess"),10);
         glUniform1f(shader.location("specularStrength"),.06f);
+        glUniform3f(shader.location("lighthouseLightOrigin"),x,top,z);
+        glUniform1i(shader.location("lighthouseShaftPass"),2);
         glBindVertexArray(vao);glDrawArrays(GL_TRIANGLES,0,(GLsizei)vertices.size()/8);glBindVertexArray(0);
+        glUniform1i(shader.location("lighthouseShaftPass"),0);
+    }
+    void drawAccessRails(Shader& shader,const CubeMesh& cube,const FrustumMesh& cylinder)const{
+        LighthouseAccess access(top);
+        auto rod=[&](glm::vec3 a,glm::vec3 b){
+            glm::vec3 d=b-a;float length=glm::length(d);glm::vec3 dir=d/length,axis=glm::cross(glm::vec3(0,1,0),dir);
+            auto m=glm::translate(transform(),(a+b)*.5f);
+            if(glm::length(axis)>.0001f)m=glm::rotate(m,acosf(glm::clamp(dir.y,-1.f,1.f)),glm::normalize(axis));
+            drawTransformedFrustum(shader,cylinder,glm::scale(m,{.055f,length,.055f}),{.18f,.21f,.20f},36,.25f);
+        };
+        for(float side:{-.96f,.96f}){
+            glm::vec3 start(side,access.landingY,2.95f),end(side,access.landingY-access.approachSteps*access.approachRise,access.footZ());
+            rod(start+glm::vec3(0,.95f,0),end+glm::vec3(0,.95f,0));
+            for(int i=0;i<=access.approachSteps;++i){
+                glm::vec3 p(side,access.approachTop(glm::min(i,access.approachSteps-1)),access.landingEdge+i*access.going);
+                rod(p,p+glm::vec3(0,.95f,0));
+            }
+        }
     }
     void cleanup(){glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);}
 };
 #endif
+
+// A dedicated keeper robot follows the physical approach and each spiral tread.
+// It is independent of the rechargeable beach robot and does not teleport that robot.
+struct TowerClimbState {
+    static constexpr float stepSeconds=.65f,pelvisHeight=.68f;
+    std::vector<glm::vec3> route;
+    int spiralBegin=0,spiralEnd=0;
+    float progress=0,galleryAngle=0;
+    bool running=false,paused=false;
+    LighthouseAccess access;
+    void reset(float baseHeight){
+        access=LighthouseAccess(baseHeight);route.clear();progress=0;galleryAngle=0;running=paused=false;
+        auto foot=access.world({0,0,access.footZ()+.02f});
+        route.push_back({0,getCoastalTerrainElevation(foot.x,foot.z)-baseHeight,access.footZ()+.02f});
+        for(int i=access.approachSteps-1;i>=0;--i)
+            route.push_back({0,access.approachTop(i),access.landingEdge+(i+.5f)*access.going});
+        for(float z=access.landingEdge-.15f;z>.84f;z-=.25f)route.push_back({0,access.landingY,z});
+        spiralBegin=(int)route.size();
+        for(int i=0;i<access.spiralSteps;++i)route.push_back(access.spiralPoint(i));
+        spiralEnd=(int)route.size()-1;
+        float a=1.570796327f+(access.spiralSteps-.5f)*access.stairAngle;
+        for(float r=1.02f;r<2.04f;r+=.24f)route.push_back({r*cosf(a),14.21f,r*sinf(a)});
+        route.push_back({0,14.21f,2.04f});
+    }
+    bool finished()const{return !route.empty()&&progress>=(float)route.size()-1;}
+    void moveManually(float input,float dt){
+        if(route.empty()||!std::isfinite(dt)||dt<=0)return;
+        running=paused=false;
+        progress=glm::clamp(progress+glm::clamp(input,-1.f,1.f)*glm::min(dt,.25f)/stepSeconds,
+            0.f,(float)route.size()-1);
+    }
+    void start(float height){reset(height);running=true;}
+    void update(float dt){
+        if(!running||paused||!std::isfinite(dt)||dt<=0||route.empty())return;
+        progress=glm::min((float)route.size()-1,progress+dt/stepSeconds);
+        if(finished())running=false;
+    }
+    glm::vec3 point(int index)const{return route.empty()?glm::vec3(0):route[glm::clamp(index,0,(int)route.size()-1)];}
+    glm::vec3 localPosition()const{
+        if(finished())return {2.04f*sinf(galleryAngle),14.21f,2.04f*cosf(galleryAngle)};
+        int i=(int)floorf(progress);float u=glm::smoothstep(0.f,1.f,progress-i);
+        return glm::mix(point(i),point(i+1),u);
+    }
+    float heading()const{
+        if(finished()||route.size()<2)return access.siteYaw+glm::degrees(galleryAngle);
+        int i=(int)floorf(progress);float u=progress-i;
+        auto incoming=point(i)-point(i-1),outgoing=point(i+1)-point(i);
+        incoming.y=outgoing.y=0;
+        if(glm::length(incoming)<.001f)incoming=outgoing;
+        auto d=glm::mix(glm::normalize(incoming),glm::normalize(outgoing),glm::smoothstep(0.f,1.f,u));
+        float angle=glm::degrees(atan2f(d.x,d.z));
+        // Turn toward the ocean during the last step instead of snapping on arrival.
+        if(i==(int)route.size()-2)angle+=std::remainder(-angle,360.f)*glm::smoothstep(.3f,1.f,u);
+        return angle+access.siteYaw;
+    }
+    glm::vec3 position()const{return access.world(localPosition());}
+    BeachRobotPose pose()const{
+        BeachRobotPose result;
+        result.transform=glm::rotate(glm::translate(glm::mat4(1),position()+glm::vec3(0,pelvisHeight,0)),
+            glm::radians(heading()),glm::vec3(0,1,0));
+        int step=(int)floorf(progress);float u=progress-step;
+        glm::vec3 right(result.transform[0]);
+        for(int leg=0;leg<2;++leg){
+            bool swinging=(step%2)==leg&&!finished();
+            auto p=swinging?glm::mix(point(step-1),point(step+1),glm::smoothstep(0.f,1.f,u)):point(step);
+            if(swinging)p.y+=.16f*sinf(u*3.141592654f);
+            if(finished())p=localPosition();
+            auto foot=access.world(p)+right*(leg==0?-.16f:.16f);
+            auto local=glm::vec3(glm::inverse(result.transform)*glm::vec4(foot,1));
+            float dy=local.y+.05f+.07f,dz=local.z-.13f;
+            float reach=glm::clamp(sqrtf(dy*dy+dz*dz),.15f,.7799f);
+            float knee=acosf(glm::clamp((reach*reach-2*.39f*.39f)/(2*.39f*.39f),-1.f,1.f));
+            float hip=atan2f(-dz,-dy)-knee*.5f;
+            result.legs.hipPitch[leg]=glm::degrees(hip);result.legs.kneePitch[leg]=glm::degrees(knee);
+            result.legs.anklePitch[leg]=-glm::degrees(hip+knee);
+        }
+        result.leftArm=finished()?0:12*sinf(progress*3.141592654f);result.rightArm=-result.leftArm;
+        return result;
+    }
+    glm::vec3 eye()const{return glm::vec3(pose().transform*glm::vec4(0,1.10f,.23f,1));}
+};
 
 // Placement-derived collision world. Decorative foliage is intentionally not
 // solid; only trunks, poles and actual equipment impede the vehicle.

@@ -6,6 +6,29 @@ lighthouse. Consolidation preserves the existing scene and controls.
 
 ## Workspace
 
+Tower controls: **T**, then **Enter**, controls the keeper robot. **W/S** (or
+Up/Down arrows) climbs/descends the stairs. **V** places it on the gallery;
+**S** descends from there. **E** switches POV/cutaway from either tower view.
+**Space** starts/resumes automatic climbing, then pauses/resumes it; from the
+top it starts a fresh climb at the entrance. **Page Up** restarts automatically,
+**Page Down** resets/exits, and **Enter** exits keeper control. Left-drag or
+**A/D** looks around on the stairs and walks around the gallery at the top.
+The default control view is first-person, using the keeper's actual eye.
+At the top, the clickable **LIGHTHOUSE LIGHT CONTROL** console offers AUTO/ON/OFF
+power, MANUAL/AUTO SWEEP, heading, tilt and speed sliders. Moving the heading or
+tilt slider pauses the sweep so the beam stays where you aim it. ON works in
+daylight; AUTO follows the day/night cycle. S returns along the gallery to the
+stair exit before descending. Movement stays on the stairs and safe gallery ring.
+The tower now has a real open doorway, stone approach stairs, landing and
+handrails, plus an excavated entrance corridor and correctly sized stair holes.
+The rechargeable beach robot remains separately controlled with Enter.
+
+Git contains the main source, Visual Studio project, required libraries,
+proposal, launcher and C++ regression tests. Build outputs, reports, videos,
+presentations, personal notes and document-generation tools remain local and
+are excluded by `.gitignore`. A fresh clone builds the scene but does not
+include those locally generated deliverables.
+
 | Main code file | Responsibility |
 | --- | --- |
 | `Main.cpp` | Window setup, scene assembly, input and render loop |
@@ -17,12 +40,27 @@ feature. Shaders are named constants at the top of `Rendering.h`; editing them
 requires rebuilding the executable. There are no runtime shader-file copies.
 
 `Libraries` contains the unchanged GLAD, GLFW and GLM dependencies, including
-the relocated `glad.c`. `validation` contains two regression-test sources.
+the relocated `glad.c`. `validation` contains regression-test sources.
 `proposal.pdf` is the original proposal. All generated outputs belong under
 the ignored `build` directory. Git metadata and editor settings are preserved.
 The separate object Showcase project has been removed.
 
+The updated 17-page report is `build/report/Beach_Day_Project_Report.pdf`;
+its editable source is the `.tex` file beside it. The current 10-slide deck is
+`build/Slides/2107077_Beach_Day_PowerPoint_Checked.pptx`. It includes lighthouse construction
+and robot charging as additional click states, with the existing two-minute
+video preserved. Use PowerPoint Slide Show to present the animations and video.
+
 ## Build and run
+
+Double-click `RunProject.bat` to build the latest **Release x64** version and
+open the project. The launcher finds Visual Studio automatically, works from
+any working directory, and keeps build diagnostics in `build/launcher.log`.
+If build tools are unavailable, it can run an existing Release executable.
+Build failures stay visible instead of launching an outdated executable.
+The launcher closes the previous instance of this project's executable before
+rebuilding, then opens the latest build automatically.
+For a build without opening the app, run `RunProject.bat --build-only`.
 
 Open `Project1.slnx` in Visual Studio, select **x64**, and build Debug or Release.
 The project uses C++20, the v145 toolset and Windows SDK. The supplied GLFW
@@ -42,14 +80,46 @@ textures are generated in memory. No scene models or texture images are imported
 
 ## Controls
 
+**Walking robot charging:** Enter selects the walking robot; WASD/arrows move it.
+Stop within 1.75 m of the charging panel and press Q to connect its side socket.
+Q disconnects. The robot's own battery, HUD and back indicators update while the
+charger's cable and display switch to the robot. Movement is locked while plugged
+in; a full recharge from empty takes 30 real seconds, including when the day clock
+is paused. Walking uses 0.05 battery percentage points per metre. The station
+serves one robot or ATV at a time. Home shows the station; Enter returns to robot
+control. The HUD gives distance and turn direction when walking toward it.
+
+**Lighthouse interior:** F3 opens/closes a front cutaway and focuses the tower.
+F4 cycles through ground utilities, storage, living quarters, sleeping quarters,
+service room and lantern. Drag to orbit and scroll to zoom. The tapered shell is
+hollow, with 0.30 m masonry walls, annular floor openings, 72 spiral steps over
+three turns, a central mast, brass handrail, five warm interior lights and concentric lens bands. The optic
+support rotates with the beacon heading; the beam remains a shader effect.
+The layout adapts the supplied lighthouse section references to the existing
+14 m shaft rather than importing their dimensions.
+
+The ocean extends 24 km in each direction from the island; near-island mesh
+spacing is unchanged. Camera bounds and viewing distance keep its outer edges
+out of sight. Boats can explore up to 4.5 km offshore in X/Z.
+The motorboat uses swept hull collisions against the shoreline, moored-boat swing clearances
+and scene obstacles. Contact stops propulsion/momentum without bouncing or
+teleporting; reverse or steer away when the contact message appears.
+
+ATV headlights turn on automatically at dusk, illuminate the beach ahead,
+and fade out at dawn. They follow vehicle steering and suspension tilt; no
+extra key is required. Press F8 to check them at night (F6 returns to noon).
+
 | Action | Control |
 | --- | --- |
 | Object instruction sidebar / GPU diagnostics | F1 / F2 |
 | Day speed | Drag lower-left slider; scroll over panel; or hold `[` / `]` |
-| Pause/play day and tide | Panel button, or Space outside ATV mode |
+| Pause/play day and tide | Panel button, or Space outside ATV and tower-climb modes |
 | Sunrise / midday / sunset / night | F5 / F6 / F7 / F8 |
 | Texture toggle / shading mode / shadows / wireframe | X / M / G / Z |
 | Focus boat / lighthouse / beach robot / palms / island | B / T / C / P / O |
+| Place keeper on observation gallery / restart auto climb | V / Page Up |
+| Control keeper while tower focused / climb–descend stairs | Enter / W–S or Up–Down |
+| Tower POV–cutaway / start auto climb–pause–resume / reset–exit | E / Space / Page Down |
 | Tour camera presets / reset view | Tab / R |
 | Camera orbit / pan / zoom | Left drag / right drag / wheel |
 | Robot head / umbrella tilt | 1–2 / 3–4 |
@@ -100,6 +170,15 @@ effect, not distant-object spotlight illumination.
 
 A second beach robot starts beside the main lounger. Press Enter to control it
 with a following camera: W/S walks forward/backward, A/D turns, and Enter exits.
+Robot turns ramp up/down with foot-pivot animation, including turns while standing;
+backward walking does not invert A/D. The ATV instead follows front-wheel angle
+and signed travel distance along an arc: reverse changes its turning direction,
+and turning the handlebars while stopped does not rotate the chassis. There is
+no retained boat-style yaw momentum in ATV steering.
+All controlled robots and the motorboat use D/right and A/left from their own
+forward-facing view. The keeper also accepts left/right arrows. The seated
+robot's 1/2 head controls turn left/right respectively. Automatic distant boats
+retain their existing routes.
 Arrows work too. Its alternating steps, knee bends, level feet and opposite
 arm swings follow distance travelled and turning, not the day cycle. Feet sample
 terrain and use two-link inverse kinematics. Releasing the keys smoothly stops
